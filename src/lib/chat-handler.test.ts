@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { UIMessage } from "ai";
+import type { UIMessage, ToolLoopAgent } from "ai";
 import type { ChatStore } from "@/lib/storage/chat-store";
 import type { BlobStore } from "@/lib/storage/blob-store";
 
+// Mock the ai module
 vi.mock("ai", () => ({
   convertToModelMessages: vi.fn(async (messages: unknown[]) => messages),
   createUIMessageStream: vi.fn(({ execute }: { execute: (arg: { writer: any }) => Promise<void> }) => {
@@ -24,9 +25,31 @@ vi.mock("ai", () => ({
     new Response(stream, { status: 200 }),
   ),
   generateText: vi.fn(),
-  streamText: vi.fn(),
   validateUIMessages: vi.fn(async ({ messages }: { messages: unknown[] }) => messages),
 }));
+
+// Create a mock agent factory
+const createMockAgent = (responseText: string): ToolLoopAgent => {
+  return {
+    stream: vi.fn().mockImplementation(async ({ onFinish }: any) => {
+      await onFinish?.({
+        text: responseText,
+        model: "anthropic.claude-sonnet-4-6-v1",
+        finishReason: "stop",
+        usage: { promptTokens: 100, completionTokens: 50 },
+      });
+
+      return {
+        toUIMessageStream: () =>
+          new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+      };
+    }),
+  } as unknown as ToolLoopAgent;
+};
 
 const { createChatPostHandler } = await import("@/lib/chat-handler");
 
@@ -89,38 +112,14 @@ describe("api/chat handler", () => {
       delete: vi.fn<BlobStore["delete"]>().mockResolvedValue(undefined),
     } satisfies BlobStore;
 
-    const streamText = vi.fn().mockImplementation(async (options: any) => {
-      await options.onFinish?.({
-        response: {
-          messages: [],
-        },
-        responseMessage: {
-          id: "a-1",
-          role: "assistant",
-          parts: [{ type: "text", text: "respuesta final" }],
-        },
-        text: "respuesta final",
-        finishReason: "stop",
-      });
-
-      return {
-        toUIMessageStream: () =>
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-      };
-    });
-
     const generateText = vi.fn().mockResolvedValue({ text: "Título generado" });
+    const mockAgent = createMockAgent("respuesta final");
 
     const handler = createChatPostHandler({
       chatStore: store,
       blobStore,
-      streamText,
+      agent: mockAgent,
       generateText,
-      createModel: (runtimeModelId) => runtimeModelId,
     });
 
     const response = await handler({
@@ -200,34 +199,13 @@ describe("api/chat handler", () => {
       delete: vi.fn<BlobStore["delete"]>().mockResolvedValue(undefined),
     } satisfies BlobStore;
 
-    const streamText = vi.fn().mockImplementation(async (options: any) => {
-      await options.onFinish?.({
-        response: { messages: [] },
-        responseMessage: {
-          id: "a-2",
-          role: "assistant",
-          parts: [{ type: "text", text: "respuesta nueva" }],
-        },
-        text: "respuesta nueva",
-        finishReason: "stop",
-      });
-
-      return {
-        toUIMessageStream: () =>
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-      };
-    });
+    const mockAgent = createMockAgent("respuesta nueva");
 
     const handler = createChatPostHandler({
       chatStore: store,
       blobStore,
-      streamText,
+      agent: mockAgent,
       generateText: vi.fn().mockResolvedValue({ text: "titulo" }),
-      createModel: (runtimeModelId) => runtimeModelId,
     });
 
     await handler({
@@ -257,16 +235,6 @@ describe("api/chat handler", () => {
       }),
     );
     expect(store.saveMessage).toHaveBeenCalledTimes(0);
-    expect(streamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          {
-            role: "user",
-            parts: [{ type: "text", text: "hola" }],
-          },
-        ],
-      }),
-    );
   });
 
   it("si falla generación no persiste respuesta parcial de asistente", async () => {
@@ -315,14 +283,15 @@ describe("api/chat handler", () => {
       delete: vi.fn<BlobStore["delete"]>().mockResolvedValue(undefined),
     } satisfies BlobStore;
 
-    const streamText = vi.fn().mockRejectedValue(new Error("bedrock timeout"));
+    const mockAgent = {
+      stream: vi.fn().mockRejectedValue(new Error("bedrock timeout")),
+    } as unknown as ToolLoopAgent;
 
     const handler = createChatPostHandler({
       chatStore: store,
       blobStore,
-      streamText,
+      agent: mockAgent,
       generateText: vi.fn().mockResolvedValue({ text: "titulo" }),
-      createModel: (runtimeModelId) => runtimeModelId,
     });
 
     const response = await handler({

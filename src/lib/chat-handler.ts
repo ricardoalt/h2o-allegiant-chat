@@ -3,17 +3,14 @@ import {
   createUIMessageStream,
   createUIMessageStreamResponse,
   generateText,
-  streamText,
   validateUIMessages,
-  type UIMessage,
+  type ToolLoopAgent,
 } from "ai";
 import { FAST_TITLE_RUNTIME_MODEL_ID } from "@/config/models";
-import { ASSISTANT_SYSTEM_PROMPT } from "@/ai/prompts/assistant";
 import {
   ensureServerMessageId,
   extractLastUserMessage,
   isStableThreadTitle,
-  toBedrockModelId,
 } from "@/lib/chat-runtime";
 import {
   ATTACHMENT_ERROR_CODES,
@@ -35,25 +32,32 @@ import type { MyUIMessage } from "@/types/ui-message";
 
 const RESOURCE_ID = "user-id";
 
-type StreamTextFn = typeof streamText;
 type GenerateTextFn = typeof generateText;
-type CreateModelFn = (runtimeModelId: string) => unknown;
 
 type Dependencies = {
   chatStore: ChatStore;
   blobStore: BlobStore;
-  streamText: StreamTextFn;
+  agent: ToolLoopAgent;
   generateText: GenerateTextFn;
-  createModel: CreateModelFn;
 };
 
 const titlePrompt = (text: string): string =>
   `Genera un título breve de máximo 6 palabras para esta conversación:\n\n${text}`;
 
+// Title generation model - using same model as main agent for consistency
+const createTitleModel = () => {
+  const { createAmazonBedrock } = require("@ai-sdk/amazon-bedrock");
+  const bedrock = createAmazonBedrock({ 
+    region: process.env.AWS_REGION || "us-east-1" 
+  });
+  // Use Claude Sonnet 4.6 for title generation (same as main agent)
+  return bedrock("us.anthropic.claude-sonnet-4-6");
+};
+
 const sanitizeTitle = (title: string): string => {
   const next = title.replace(/[\n\r]+/g, " ").trim();
   if (!next) {
-    return "New Chat";
+    return "New Stream";
   }
 
   return next.slice(0, 80);
@@ -273,16 +277,13 @@ export const createChatPostHandler = (deps: Dependencies) => {
 
     const historyForModel = await withBedrockAttachmentData(persistedHistory, deps.blobStore);
 
-    const modelMessages = await convertToModelMessages(
-      historyForModel.map(({ id: _id, ...rest }) => rest),
-    );
+    const uiMessages = historyForModel.map(({ id: _id, ...rest }) => rest);
+    const modelMessages = await convertToModelMessages(uiMessages);
 
     const stream = createUIMessageStream<MyUIMessage>({
       execute: async ({ writer }) => {
         try {
-          const result = await deps.streamText({
-            model: deps.createModel(params.runtimeModelId),
-            system: ASSISTANT_SYSTEM_PROMPT,
+          const result = await deps.agent.stream({
             messages: modelMessages,
             onFinish: async (event) => {
               const responseMessage = toAssistantMessage(event);
@@ -311,7 +312,7 @@ export const createChatPostHandler = (deps: Dependencies) => {
               if (isNewThread && mustGenerateTitle && event.text.trim().length > 0) {
                 try {
                   const titleResult = await deps.generateText({
-                    model: deps.createModel(FAST_TITLE_RUNTIME_MODEL_ID),
+                    model: createTitleModel(),
                     prompt: titlePrompt(event.text),
                   });
 
@@ -365,15 +366,14 @@ const getDefaultHandler = async (): Promise<ReturnType<typeof createChatPostHand
     sessionToken: env.AWS_SESSION_TOKEN,
   });
 
-  const { createAmazonBedrock } = await import("@ai-sdk/amazon-bedrock");
-  const bedrock = createAmazonBedrock({ region: env.AWS_REGION });
+  // Import the discovery agent with skills support
+  const { discoveryAgent } = await import("@/lib/agents/discovery-agent");
 
   cachedHandler = createChatPostHandler({
     chatStore,
     blobStore,
-    streamText,
+    agent: discoveryAgent,
     generateText,
-    createModel: (runtimeModelId) => bedrock(toBedrockModelId(runtimeModelId)),
   });
 
   return cachedHandler;

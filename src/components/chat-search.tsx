@@ -34,11 +34,11 @@ export function ChatSearch({ onOpenChange, ...props }: ChatSearchProps) {
         aria-describedby={undefined}
         className={cn("outline! border-none! p-0 outline-border! outline-solid!")}
       >
-        <DialogTitle className="sr-only">Search chats</DialogTitle>
+        <DialogTitle className="sr-only">Search streams</DialogTitle>
         <Command className="**:data-[slot=command-input-wrapper]:h-auto">
-          <CommandInput placeholder="Search chats..." className="h-auto py-3.5" />
+          <CommandInput placeholder="Search streams..." className="h-auto py-3.5" />
           <CommandList>
-            <CommandEmpty>No chats found.</CommandEmpty>
+            <CommandEmpty>No streams found.</CommandEmpty>
             {groupedThreads.map((group) => (
               <CommandGroup key={group.label} heading={group.label}>
                 {group.items.map((thread) => (

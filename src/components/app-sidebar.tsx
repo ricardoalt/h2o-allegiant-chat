@@ -49,12 +49,12 @@ type SidebarActionItem = {
 const SIDEBAR_ACTIONS: ReadonlyArray<SidebarActionItem> = [
   {
     id: "new-chat",
-    label: "New chat",
+    label: "New stream",
     icon: SquarePen,
   },
   {
     id: "search-chats",
-    label: "Search chats",
+    label: "Search streams",
     icon: Search,
   },
 ];
@@ -134,7 +134,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
       <Sidebar collapsible="icon" {...props}>
         <SidebarHeader className="px-3 pt-3 group-data-[collapsible=icon]:px-0">
           <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center">
-            <OpenChatLogo className="size-9 shrink-0 rounded-full group-data-[collapsible=icon]:size-8" />
+            <OpenChatLogo className="h-8 w-auto max-w-[160px] shrink-0 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:max-w-[120px]" />
             <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
           </div>
         </SidebarHeader>
@@ -172,14 +172,14 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
                       <SidebarMenuButton
                         render={<Link to="/c/$threadId" params={{ threadId: thread.id }} />}
                         isActive={thread.id === activeThreadId}
-                        aria-label={thread.title ?? "Untitled chat"}
+                        aria-label={thread.title ?? "Untitled stream"}
                       >
-                        <span>{thread.title ?? "Untitled chat"}</span>
+                        <span>{thread.title ?? "Untitled stream"}</span>
                       </SidebarMenuButton>
                       <SidebarMenuAction
                         showOnHover
                         className="right-6"
-                        aria-label="Branch chat"
+                        aria-label="Branch stream"
                         onClick={(e) => {
                           e.preventDefault();
                           branchThreadMutation.mutate(thread.id);
@@ -189,7 +189,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
                       </SidebarMenuAction>
                       <SidebarMenuAction
                         showOnHover
-                        aria-label="Delete chat"
+                        aria-label="Delete stream"
                         onClick={(e) => {
                           e.preventDefault();
                           setThreadToDelete(thread);
@@ -205,7 +205,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
           ) : (
             <SidebarGroup className="group-data-[collapsible=icon]:hidden">
               <SidebarMenu>
-                <p className="text-muted-foreground px-2 py-1 text-xs">No chats yet</p>
+                <p className="text-muted-foreground px-2 py-1 text-xs">No streams yet</p>
               </SidebarMenu>
             </SidebarGroup>
           )}
@@ -258,9 +258,9 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
       >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete chat</AlertDialogTitle>
+            <AlertDialogTitle>Delete stream</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this chat and all its messages. This action cannot be
+              This will permanently delete this stream and all its messages. This action cannot be
               undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
