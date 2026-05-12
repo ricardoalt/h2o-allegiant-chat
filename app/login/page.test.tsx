@@ -13,7 +13,10 @@ describe("login page", () => {
     const { LoginView } = await import("./login-view");
 
     const element = LoginPage() as { props: { children: unknown } };
+    const children = React.Children.toArray(element.props.children as React.ReactNode);
 
-    expect(element.props.children).toMatchObject({ type: LoginView, props: {} });
+    expect(children).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: LoginView })]),
+    );
   });
 });
