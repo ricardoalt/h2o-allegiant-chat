@@ -27,6 +27,7 @@ function SignedInRedirect(): React.JSX.Element {
           strokeWidth="2.5"
           viewBox="0 0 24 24"
         >
+          <title>Signed in</title>
           <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>

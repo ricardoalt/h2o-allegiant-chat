@@ -9,14 +9,14 @@
   /* SecondStream brand — single source of truth (derived from #3759A0) */
   --brand-50: oklch(0.97 0.02 263);
   --brand-100: oklch(0.92 0.04 263);
-  --brand-300: oklch(0.78 0.10 263);
+  --brand-300: oklch(0.78 0.1 263);
   --brand-400: oklch(0.62 0.14 263);
   --brand-500: oklch(0.55 0.15 263);
   --brand-600: oklch(0.483 0.146 263);
   --brand-700: oklch(0.42 0.13 263);
   --brand-glow: oklch(0.483 0.146 263 / 0.35);
   --brand-glow-soft: oklch(0.483 0.146 263 / 0.18);
-  --brand-tint: oklch(0.62 0.14 263 / 0.10);
+  --brand-tint: oklch(0.62 0.14 263 / 0.1);
   --brand-accent-line: oklch(0.62 0.14 263 / 0.6);
 }
 
@@ -43,7 +43,8 @@
   --amplify-components-fieldcontrol-border-color: var(--border);
   --amplify-components-fieldcontrol-border-radius: var(--radius);
   --amplify-components-fieldcontrol-focus-border-color: var(--ring);
-  --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 35%, transparent);
+  --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 2px
+    color-mix(in oklch, var(--ring) 35%, transparent);
   --amplify-components-fieldcontrol-error-border-color: var(--destructive);
   --amplify-components-fieldcontrol-error-color: var(--destructive);
 
@@ -53,9 +54,15 @@
 
   /* Buttons — primary uses our brand */
   --amplify-components-button-primary-background-color: var(--amplify-colors-brand-primary-90);
-  --amplify-components-button-primary-hover-background-color: var(--amplify-colors-brand-primary-80);
-  --amplify-components-button-primary-focus-background-color: var(--amplify-colors-brand-primary-80);
-  --amplify-components-button-primary-active-background-color: var(--amplify-colors-brand-primary-100);
+  --amplify-components-button-primary-hover-background-color: var(
+    --amplify-colors-brand-primary-80
+  );
+  --amplify-components-button-primary-focus-background-color: var(
+    --amplify-colors-brand-primary-80
+  );
+  --amplify-components-button-primary-active-background-color: var(
+    --amplify-colors-brand-primary-100
+  );
   --amplify-components-button-primary-color: oklch(0.985 0.001 106);
   --amplify-components-button-primary-border-radius: var(--radius);
   --amplify-components-button-link-color: var(--amplify-colors-brand-primary-60);
@@ -72,7 +79,11 @@
   --amplify-components-tabs-background-color: transparent;
 
   /* Alerts (error message) */
-  --amplify-components-alert-error-background-color: color-mix(in oklch, var(--destructive) 14%, transparent);
+  --amplify-components-alert-error-background-color: color-mix(
+    in oklch,
+    var(--destructive) 14%,
+    transparent
+  );
   --amplify-components-alert-error-color: var(--destructive);
   --amplify-components-alert-border-radius: var(--radius);
 

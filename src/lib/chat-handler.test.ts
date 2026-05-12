@@ -71,7 +71,10 @@ const createMockAgent = (responseText: string): ToolLoopAgent => {
       });
 
       return {
-        toUIMessageStream: ({ generateMessageId, onFinish: onUiFinish }: MockUIStreamOptions = {}) =>
+        toUIMessageStream: ({
+          generateMessageId,
+          onFinish: onUiFinish,
+        }: MockUIStreamOptions = {}) =>
           new ReadableStream({
             async start(controller) {
               await onUiFinish?.({

@@ -11,9 +11,9 @@ vi.mock("@/components/chat-interface", () => ({
 }));
 
 vi.mock("@/components/new-chat-page", () => ({
-  NewChatPage: (props: { resetKey: string }) => ({
+  NewChatPage: () => ({
     type: "NewChatPage",
-    props,
+    props: {},
   }),
 }));
 
@@ -48,9 +48,9 @@ describe("App Router route parity", () => {
 
     const element = (await Page({
       searchParams: Promise.resolve({}),
-    })) as { props: { resetKey: string } };
+    })) as { key: string };
 
-    expect(element.props.resetKey).toBe("initial");
+    expect(element.key).toBe("initial");
   });
 
   it("loads thread workspace messages server-side before rendering ChatInterface", async () => {

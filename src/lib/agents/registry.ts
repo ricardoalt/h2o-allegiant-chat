@@ -12,7 +12,7 @@ export type AgentStep = {
 export type StreamAgent = {
   stream: (options: {
     messages: Awaited<ReturnType<typeof convertToModelMessages>>;
-    onStepFinish: (step: AgentStep) => Promise<void>;
+    onStepFinish?: (step: AgentStep) => Promise<void>;
   }) => Promise<{
     toUIMessageStream: (options: {
       generateMessageId?: () => string;

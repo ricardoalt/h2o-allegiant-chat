@@ -26,7 +26,7 @@ type AmplifyDataClient = {
   models: {
     Session: AmplifyModelClient<Record<string, unknown> & { id: string }>;
     Message: AmplifyModelClient<MessageRecord> & {
-      listMessageBySessionId?: (input: { sessionId: string }) => AmplifyListResult<MessageRecord>;
+      listMessageBySessionId: (input: { sessionId: string }) => AmplifyListResult<MessageRecord>;
     };
     File: AmplifyModelClient<
       Record<string, unknown> & {
@@ -94,7 +94,7 @@ export class AmplifyChatStore implements ChatStore {
   }
 
   async getThreadMessages(threadId: string): Promise<MyUIMessage[]> {
-    const { messages, queryMode } = await this.listMessageRows(threadId);
+    const messages = await this.listMessageRows(threadId);
 
     const orderedMessages = messages
       .slice()
@@ -102,14 +102,6 @@ export class AmplifyChatStore implements ChatStore {
     const parsedMessages = orderedMessages
       .map((message) => parseStoredPayloadJson(message.payloadJson))
       .filter(isStoredUIMessage);
-
-    console.info("[chat-store] get-thread-messages:result", {
-      threadId,
-      queryMode,
-      rawCount: messages.length,
-      parsedCount: parsedMessages.length,
-      droppedCount: orderedMessages.length - parsedMessages.length,
-    });
 
     return parsedMessages.map((message) => structuredClone(message));
   }
@@ -123,14 +115,7 @@ export class AmplifyChatStore implements ChatStore {
       role: message.role,
       payloadJson: JSON.stringify(message),
     });
-    const createdMessage = assertNoAmplifyErrors("Message.create", result);
-
-    console.info("[chat-store] save-message:created", {
-      threadId,
-      messageId: message.id,
-      role: message.role,
-      created: Boolean(createdMessage),
-    });
+    assertNoAmplifyErrors("Message.create", result);
 
     await this.bumpUpdatedAt(threadId);
   }
@@ -166,7 +151,7 @@ export class AmplifyChatStore implements ChatStore {
   }
 
   async deleteThread(threadId: string): Promise<void> {
-    const { messages } = await this.listMessageRows(threadId);
+    const messages = await this.listMessageRows(threadId);
     await Promise.all(
       messages.map((message) => this.dataClient.models.Message.delete({ id: message.id })),
     );
@@ -178,7 +163,7 @@ export class AmplifyChatStore implements ChatStore {
     messageId: string,
     nextAssistantMessage: MyUIMessage,
   ): Promise<void> {
-    const { messages } = await this.listMessageRows(threadId);
+    const messages = await this.listMessageRows(threadId);
     const ordered = messages
       .slice()
       .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
@@ -262,27 +247,12 @@ export class AmplifyChatStore implements ChatStore {
     await this.dataClient.models.Session.update({ id: threadId, title: current?.title ?? null });
   }
 
-  private async listMessageRows(
-    threadId: string,
-  ): Promise<{ messages: MessageRecord[]; queryMode: "secondary-index" | "filter-scan" }> {
-    if (this.dataClient.models.Message.listMessageBySessionId) {
-      const result = await this.dataClient.models.Message.listMessageBySessionId({
-        sessionId: threadId,
-      });
-      return {
-        messages: assertNoAmplifyErrors("Message.listMessageBySessionId", result),
-        queryMode: "secondary-index",
-      };
-    }
-
-    const result = await this.dataClient.models.Message.list({
-      filter: { sessionId: { eq: threadId } },
+  private async listMessageRows(threadId: string): Promise<MessageRecord[]> {
+    const result = await this.dataClient.models.Message.listMessageBySessionId({
+      sessionId: threadId,
     });
 
-    return {
-      messages: assertNoAmplifyErrors("Message.list", result),
-      queryMode: "filter-scan",
-    };
+    return assertNoAmplifyErrors("Message.listMessageBySessionId", result);
   }
 }
 

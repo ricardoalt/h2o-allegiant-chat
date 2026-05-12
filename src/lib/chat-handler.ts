@@ -318,18 +318,6 @@ export const createChatPostHandler = (deps: Dependencies) => {
 
           const result = await deps.agent.stream({
             messages: modelMessages,
-            onStepFinish: async (step) => {
-              console.info("[chat] agent:step-finish", {
-                finishReason: step.finishReason,
-                toolCalls: (step.toolCalls ?? []).map(
-                  (toolCall: { toolName: string }) => toolCall.toolName,
-                ),
-                toolResults: (step.toolResults ?? []).map(
-                  (toolResult: { toolName: string }) => toolResult.toolName,
-                ),
-                textLength: step.text?.length ?? 0,
-              });
-            },
           });
 
           writer.merge(
@@ -337,11 +325,6 @@ export const createChatPostHandler = (deps: Dependencies) => {
               originalMessages: persistedHistory,
               generateMessageId: nanoid,
               onFinish: async ({ responseMessage }: { responseMessage: MyUIMessage }) => {
-                console.info("[chat] agent:response-message", {
-                  role: responseMessage.role,
-                  parts: responseMessage.parts.map((part) => part.type),
-                });
-
                 const persistedResponseMessage = ensureServerMessageId(responseMessage);
 
                 if (

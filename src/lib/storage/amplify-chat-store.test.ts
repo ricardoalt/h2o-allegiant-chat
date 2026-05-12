@@ -18,9 +18,7 @@ const createMockDataClient = () => ({
       update: vi.fn(async (input) => ({ data: input })),
       delete: vi.fn(async (input) => ({ data: input })),
       list: vi.fn(async () => ({ data: [] })),
-      listMessageBySessionId: undefined as
-        | undefined
-        | ReturnType<typeof vi.fn<(input: { sessionId: string }) => Promise<{ data: unknown[] }>>>,
+      listMessageBySessionId: vi.fn(async () => ({ data: [] })),
     },
     File: {
       create: vi.fn(async (input) => ({ data: input })),

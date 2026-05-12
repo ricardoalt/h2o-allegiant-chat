@@ -2,11 +2,11 @@
 
 import { nanoid } from "nanoid";
 import type * as React from "react";
-import { useMemo } from "react";
+import { useState } from "react";
 import { ChatInterface } from "@/components/chat-interface";
 
-export function NewChatPage({ resetKey }: { resetKey: string }): React.JSX.Element {
-  const threadId = useMemo(() => nanoid(), [resetKey]);
+export function NewChatPage(): React.JSX.Element {
+  const [threadId] = useState(() => nanoid());
 
-  return <ChatInterface key={resetKey} initialMessages={[]} threadId={threadId} />;
+  return <ChatInterface initialMessages={[]} threadId={threadId} />;
 }

@@ -9,5 +9,5 @@ export default async function Page({ searchParams }: PageProps): Promise<React.J
   const params = await searchParams;
   const resetKey = params.new ?? "initial";
 
-  return <NewChatPage resetKey={resetKey} />;
+  return <NewChatPage key={resetKey} />;
 }
