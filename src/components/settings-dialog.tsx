@@ -162,7 +162,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <Separator />
 
         <Button onClick={handleSave} disabled={mutation.isPending} className="w-full">
-          {mutation.isPending ? "Saving..." : "Save personalization"}
+          {mutation.isPending ? "Saving…" : "Save personalization"}
         </Button>
       </DialogContent>
     </Dialog>

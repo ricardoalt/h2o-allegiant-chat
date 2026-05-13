@@ -1,4 +1,3 @@
-import "@aws-amplify/ui-react/styles.css";
 import "../src/styles.css";
 import type { Metadata } from "next";
 import type * as React from "react";

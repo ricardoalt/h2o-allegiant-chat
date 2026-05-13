@@ -25,6 +25,7 @@ describe("global CSS imports", () => {
       "../node_modules/tw-animate-css/dist/tw-animate.css",
       "../node_modules/shadcn/dist/tailwind.css",
       "@fontsource-variable/geist",
+      "./styles/amplify-theme.css",
     ]);
   });
 

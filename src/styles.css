@@ -12,29 +12,31 @@
 
 @custom-variant dark (&:is(.dark *));
 
-body {
-  @apply m-0;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
-    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
 code {
   font-family:
     source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
 :root {
-  /* Brand scale — SecondStream blue (derived from #3759A0) */
-  --brand-50: oklch(0.97 0.02 263);
-  --brand-100: oklch(0.92 0.04 263);
-  --brand-300: oklch(0.78 0.1 263);
-  --brand-400: oklch(0.62 0.14 263);
-  --brand-500: oklch(0.55 0.15 263);
-  --brand-600: oklch(0.483 0.146 263);
-  --brand-700: oklch(0.42 0.13 263);
+  /* H2O Allegiant brand scale — anchor hex values from logo PNG:
+   *   400 = #0099E6 (cyan), 500 = #0070E2 (bright blue, PRIMARY),
+   *   600 = #005EA3 (mid), 700 = #003E84 (deep), 800 = #002953 (navy)
+   */
+  --brand-50: oklch(0.97 0.025 248);
+  --brand-100: oklch(0.93 0.05 248);
+  --brand-200: oklch(0.86 0.09 245);
+  --brand-300: oklch(0.78 0.12 240);
+  --brand-400: oklch(0.681 0.155 234);
+  --brand-500: oklch(0.578 0.205 258);
+  --brand-600: oklch(0.485 0.152 250);
+  --brand-700: oklch(0.358 0.143 257);
+  --brand-800: oklch(0.282 0.085 252);
+  --brand-900: oklch(0.22 0.06 252);
+
+  /* Semantic brand aliases */
+  --brand-primary: var(--brand-500);
+  --brand-cyan: var(--brand-400);
+  --brand-navy: var(--brand-800);
 
   --card:
     oklch(1 0 0);
@@ -44,8 +46,7 @@ code {
     oklch(1 0 0);
   --popover-foreground:
     oklch(0.147 0.004 49.25);
-  --primary:
-    oklch(0.216 0.006 56.043);
+  --primary: var(--brand-500);
   --primary-foreground:
     oklch(0.985 0.001 106.423);
   --secondary:
@@ -56,47 +57,36 @@ code {
     oklch(0.97 0.001 106.424);
   --muted-foreground:
     oklch(0.553 0.013 58.071);
-  --accent:
-    oklch(0.97 0.001 106.424);
-  --accent-foreground:
-    oklch(0.216 0.006 56.043);
+  --accent: var(--brand-50);
+  --accent-foreground: var(--brand-700);
   --destructive:
     oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0.001 106.423);
   --border:
     oklch(0.923 0.003 48.717);
   --input:
     oklch(0.923 0.003 48.717);
-  --ring:
-    oklch(0.709 0.01 56.259);
-  --chart-1:
-    oklch(0.646 0.222 41.116);
-  --chart-2:
-    oklch(0.6 0.118 184.704);
-  --chart-3:
-    oklch(0.398 0.07 227.392);
-  --chart-4:
-    oklch(0.828 0.189 84.429);
-  --chart-5:
-    oklch(0.769 0.188 70.08);
+  --ring: var(--brand-500);
+  /* Charts — derived from brand scale for coherent data viz */
+  --chart-1: var(--brand-400);
+  --chart-2: var(--brand-500);
+  --chart-3: var(--brand-600);
+  --chart-4: var(--brand-700);
+  --chart-5: var(--brand-300);
   --radius:
-    0.625rem;
+    0.75rem;
   --sidebar:
     oklch(0.985 0.001 106.423);
   --sidebar-foreground:
     oklch(0.147 0.004 49.25);
-  --sidebar-primary:
-    oklch(0.216 0.006 56.043);
+  --sidebar-primary: var(--brand-500);
   --sidebar-primary-foreground:
     oklch(0.985 0.001 106.423);
-  --sidebar-accent:
-    oklch(0.97 0.001 106.424);
-  --sidebar-accent-foreground:
-    oklch(0.216 0.006 56.043);
+  --sidebar-accent: var(--brand-50);
+  --sidebar-accent-foreground: var(--brand-700);
   --sidebar-border:
     oklch(0.923 0.003 48.717);
-  --sidebar-ring:
-    oklch(0.709 0.01 56.259);
+  --sidebar-ring: var(--brand-500);
   --background:
     oklch(1 0 0);
   --foreground:
@@ -116,10 +106,9 @@ code {
     oklch(0.216 0.006 56.043);
   --popover-foreground:
     oklch(0.985 0.001 106.423);
-  --primary:
-    oklch(0.923 0.003 48.717);
+  --primary: var(--brand-500);
   --primary-foreground:
-    oklch(0.216 0.006 56.043);
+    oklch(0.985 0.001 106.423);
   --secondary:
     oklch(0.268 0.007 34.298);
   --secondary-foreground:
@@ -128,55 +117,49 @@ code {
     oklch(0.268 0.007 34.298);
   --muted-foreground:
     oklch(0.709 0.01 56.259);
-  --accent:
-    oklch(0.268 0.007 34.298);
-  --accent-foreground:
-    oklch(0.985 0.001 106.423);
+  --accent: color-mix(in oklch, var(--brand-500) 18%, transparent);
+  --accent-foreground: var(--brand-300);
   --destructive:
     oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --destructive-foreground: oklch(0.985 0.001 106.423);
   --border:
     oklch(1 0 0 / 10%);
   --input:
     oklch(1 0 0 / 15%);
-  --ring:
-    oklch(0.553 0.013 58.071);
-  --chart-1:
-    oklch(0.488 0.243 264.376);
-  --chart-2:
-    oklch(0.696 0.17 162.48);
-  --chart-3:
-    oklch(0.769 0.188 70.08);
-  --chart-4:
-    oklch(0.627 0.265 303.9);
-  --chart-5:
-    oklch(0.645 0.246 16.439);
+  --ring: var(--brand-400);
+  --chart-1: var(--brand-300);
+  --chart-2: var(--brand-400);
+  --chart-3: var(--brand-500);
+  --chart-4: var(--brand-600);
+  --chart-5: var(--brand-200);
   --sidebar:
     oklch(0.216 0.006 56.043);
   --sidebar-foreground:
     oklch(0.985 0.001 106.423);
-  --sidebar-primary:
-    oklch(0.488 0.243 264.376);
+  --sidebar-primary: var(--brand-500);
   --sidebar-primary-foreground:
     oklch(0.985 0.001 106.423);
-  --sidebar-accent:
-    oklch(0.268 0.007 34.298);
-  --sidebar-accent-foreground:
-    oklch(0.985 0.001 106.423);
+  --sidebar-accent: color-mix(in oklch, var(--brand-500) 18%, transparent);
+  --sidebar-accent-foreground: var(--brand-300);
   --sidebar-border:
     oklch(1 0 0 / 10%);
-  --sidebar-ring:
-    oklch(0.553 0.013 58.071);
+  --sidebar-ring: var(--brand-400);
 }
 
 @theme inline {
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
   --color-brand-300: var(--brand-300);
   --color-brand-400: var(--brand-400);
   --color-brand-500: var(--brand-500);
   --color-brand-600: var(--brand-600);
   --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-navy: var(--brand-navy);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -259,10 +242,14 @@ code {
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply font-sans bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    color-scheme: light dark;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply m-0 font-sans bg-background text-foreground antialiased;
   }
 }

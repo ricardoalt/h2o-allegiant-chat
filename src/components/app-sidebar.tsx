@@ -145,7 +145,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
       <ChatSearch open={searchOpen} onOpenChange={setSearchOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <Sidebar collapsible="icon" {...props}>
-        <SidebarHeader className="px-3 pt-3 group-data-[collapsible=icon]:px-0">
+        <SidebarHeader className="relative px-3 pt-3 group-data-[collapsible=icon]:px-0 after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-primary/20 after:to-transparent group-data-[collapsible=icon]:after:inset-x-1">
           <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center">
             <OpenChatLogo className="h-8 w-auto max-w-[160px] shrink-0 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:max-w-[120px]" />
             <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
@@ -186,6 +186,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
                         render={<Link href={`/c/${thread.id}`} />}
                         isActive={thread.id === activeThreadId}
                         aria-label={thread.title ?? "Untitled stream"}
+                        className="relative data-active:font-medium data-active:before:pointer-events-none data-active:before:absolute data-active:before:top-1.5 data-active:before:bottom-1.5 data-active:before:left-0 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-primary"
                       >
                         <span>{thread.title ?? "Untitled stream"}</span>
                       </SidebarMenuButton>
@@ -236,7 +237,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
                     />
                   }
                 >
-                  <div className="bg-orange-500 text-white flex size-9 shrink-0 aspect-square items-center justify-center rounded-full text-lg font-medium group-data-[collapsible=icon]:size-7 group-data-[collapsible=icon]:text-base">
+                  <div className="bg-primary text-primary-foreground flex size-9 shrink-0 aspect-square items-center justify-center rounded-full text-lg font-medium group-data-[collapsible=icon]:size-7 group-data-[collapsible=icon]:text-base">
                     {initials}
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">

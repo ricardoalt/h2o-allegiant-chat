@@ -29,9 +29,16 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Source, SourceContent, SourceTrigger } from "@/components/ai-elements/sources";
 import { WorkingMemoryUpdate } from "@/components/ai-elements/working-memory-update";
 import { ChatPromptComposer } from "@/components/chat-prompt-composer";
+import { useDraftInput } from "@/hooks/use-draft-input";
 import { canSubmitPromptMessage, shouldShowLoadingShimmer } from "@/lib/chat-utils";
 import type { MyUIMessage } from "@/types/ui-message";
 import { CopyButton } from "./copy-button";
+
+const EMPTY_STATE_SUGGESTIONS = [
+  "Summarize a recent water quality report",
+  "Explain a current water regulation",
+  "Draft a maintenance procedure",
+] as const;
 
 type ChatSendRequestInput = Pick<
   Parameters<PrepareSendMessagesRequest<MyUIMessage>>[0],
@@ -80,6 +87,7 @@ export function ChatInterface({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const draft = useDraftInput();
 
   const branchMutation = useMutation({
     mutationFn: (upToMessageId: string) => cloneThread({ sourceThreadId: threadId, upToMessageId }),
@@ -155,8 +163,20 @@ export function ChatInterface({
     [clearError, sendMessage],
   );
 
+  const handleSuggestionClick = useCallback(
+    (text: string) => {
+      void handleSubmitMessage({
+        text,
+        files: [],
+        modelId: draft.modelId,
+        webSearchEnabled: draft.webSearchEnabled,
+      });
+    },
+    [handleSubmitMessage, draft.modelId, draft.webSearchEnabled],
+  );
+
   return (
-    <div className="flex h-full flex-1 flex-col">
+    <div className="relative flex h-full flex-1 flex-col">
       <AnimatePresence mode="wait" initial={false}>
         {isEmptyState ? (
           <motion.div
@@ -165,12 +185,24 @@ export function ChatInterface({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
-            className="mx-auto flex w-full max-w-[70ch] flex-1 flex-col items-center justify-center gap-14 px-6 pb-24"
+            className="relative mx-auto flex w-full max-w-[70ch] flex-1 flex-col items-center justify-center gap-10 px-6 pb-24"
           >
-            <h1 className="text-foreground text-5xl font-medium tracking-tight">
-              What can I help with?
-            </h1>
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[60%] bg-[radial-gradient(60%_70%_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent)_0%,transparent_70%)]"
+            />
+
+            <div className="space-y-3 text-center">
+              <h1 className="text-balance font-medium text-5xl text-foreground tracking-tight">
+                Ask H2O Allegiant
+              </h1>
+              <p className="text-balance text-muted-foreground">
+                Your water intelligence assistant.
+              </p>
+            </div>
+
             {error ? <ChatRuntimeError message={error.message} /> : null}
+
             <ChatPromptComposer
               className="w-full"
               errorMessage={error?.message ?? null}
@@ -180,10 +212,23 @@ export function ChatInterface({
                 }
               }}
               onSubmitMessage={handleSubmitMessage}
-              placeholder="Ask anything"
+              placeholder="Ask anything about water"
               status={status}
               textareaClassName="min-h-16 text-lg"
             />
+
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+              {EMPTY_STATE_SUGGESTIONS.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  className="group rounded-2xl border border-primary/15 bg-card/60 px-4 py-3 text-left text-muted-foreground text-sm backdrop-blur-sm transition-[background-color,border-color,box-shadow,color] hover:border-primary/35 hover:bg-primary/5 hover:text-foreground hover:shadow-[0_4px_24px_-12px_color-mix(in_oklch,var(--primary)_45%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
           </motion.div>
         ) : (
           <motion.div
@@ -274,11 +319,11 @@ export function ChatInterface({
                                 ) : (
                                   <div
                                     key={`${message.id}-${i}`}
-                                    className="flex items-center gap-1.5"
+                                    className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-3 py-1.5"
                                   >
-                                    <GlobeIcon className="text-muted-foreground size-3.5" />
-                                    <Shimmer as="p" className="text-sm">
-                                      {`Searching for: ${part.state === "input-available" ? part.input.query : "..."}`}
+                                    <GlobeIcon className="size-3.5 text-primary" />
+                                    <Shimmer as="span" className="text-foreground/85 text-sm">
+                                      {`Searching for: ${part.state === "input-available" ? part.input.query : "…"}`}
                                     </Shimmer>
                                   </div>
                                 );
@@ -356,7 +401,7 @@ export function ChatInterface({
                     <Message from="assistant">
                       <MessageContent>
                         <Shimmer as="p" className="text-sm">
-                          Thinking...
+                          Thinking…
                         </Shimmer>
                       </MessageContent>
                     </Message>
