@@ -262,3 +262,50 @@ The synthetic `streaming-canary` Function URL is **retained** until real Cognito
 - Lambda S3 BlobStore writes new objects under `lambda-chat/attachments/users/{userId}`; old Amplify private `identityId` objects are not automatically readable by this new key path.
 - Bedrock IAM is scoped to inference-profile/foundation-model ARN patterns rather than exact model IDs; tighten further if governance requires explicit model ARN allowlists.
 - Existing SDD artifacts `design.md` and `tasks.md` appear untracked in this worktree; they were read as source context and not modified by this PR5 apply slice.
+
+## Post-Deploy Fix Slice — Lambda Streaming POST CORS
+
+### Completed Tasks
+
+- Added explicit runtime CORS response header support for Lambda Function URL streaming responses.
+- Added allowed-origin enforcement before POST chat execution; unapproved cross-origin POST requests now return `403 ORIGIN_NOT_ALLOWED` without invoking chat handling or adding `access-control-allow-origin`.
+- Added `access-control-allow-origin`, `access-control-expose-headers`, and `vary: origin` to approved-origin POST stream metadata, including auth/error response paths.
+- Preserved OPTIONS preflight behavior and existing non-wildcard allowlist semantics.
+
+### Files Changed
+
+- `amplify/functions/chat-streaming/runtime-adapter.ts` — added CORS response helpers and reused exposed-header metadata.
+- `amplify/functions/chat-streaming/handler.ts` — rejects unapproved origins before auth/chat execution and wraps POST/error responses with approved-origin CORS headers.
+- `amplify/functions/chat-streaming/handler.test.ts` — added metadata-capture tests for approved POST CORS, approved auth-error CORS, and unapproved-origin rejection.
+- `openspec/changes/port-chat-streaming-to-lambda/apply-progress.md` — recorded this post-deploy fix evidence.
+
+### TDD Evidence (post-deploy CORS fix)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Lambda streaming POST CORS metadata and origin rejection | `amplify/functions/chat-streaming/handler.test.ts` | Unit | ✅ 13/13 existing handler/runtime tests passed before edits | ✅ Added tests failed: approved POST lacked ACAO metadata; evil origin still invoked chat; auth-error lacked ACAO | ✅ `bun run test amplify/functions/chat-streaming/handler.test.ts` passed 4/4 after implementation | ✅ Covered success stream, auth-error stream, and disallowed-origin rejection before chat execution | ✅ Extracted CORS helpers in `runtime-adapter.ts`; Biome check/write made no further changes |
+
+### Test Commands Run (post-deploy CORS fix)
+
+- `bun run test amplify/functions/chat-streaming/runtime-adapter.test.ts amplify/functions/chat-streaming/handler.test.ts` — ✅ baseline 13/13 passed before edits.
+- `bun run test amplify/functions/chat-streaming/handler.test.ts` — ❌ RED: 3 new assertions failed before implementation (missing ACAO; disallowed origin still invoked chat; auth-error missing ACAO).
+- `bun run test amplify/functions/chat-streaming/handler.test.ts` — ✅ GREEN: 4/4 passed after implementation.
+- `bunx biome check --write amplify/functions/chat-streaming/handler.ts amplify/functions/chat-streaming/handler.test.ts amplify/functions/chat-streaming/runtime-adapter.ts` — ✅ no fixes needed.
+- `bun run test amplify/functions/chat-streaming/handler.test.ts amplify/functions/chat-streaming/runtime-adapter.test.ts` — ✅ 14/14 passed.
+- `bunx tsc --noEmit` — ✅ passed.
+- `bun run check` — ✅ passed, 141 files checked.
+
+### Deviations From Design
+
+- None. This narrows R7 CORS/origin controls for the already-selected Lambda Function URL streaming path and avoids wildcard origins with Authorization.
+
+### Remaining Tasks
+
+- Deploy this fix to production, then retry the browser Network smoke against the hardcoded Lambda Function URL.
+- If CORS is resolved, continue evaluating whether chunks arrive progressively; if not, inspect Function URL streaming mode, adapter chunk logs, AI SDK/Bedrock stream timing, and browser/proxy behavior.
+- Remove synthetic `streaming-canary` only after chat Lambda streaming is accepted.
+
+### Workload / PR Boundary
+
+- Delivery path remains stacked-to-main/post-deploy hotfix slice.
+- Boundary: minimal Lambda CORS fix only; no frontend transport or infrastructure behavior changes.

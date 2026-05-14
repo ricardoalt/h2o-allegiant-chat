@@ -102,6 +102,37 @@ export const rejectUnsupportedMethod = (_method: string): Response =>
     },
   });
 
+export const isAllowedCorsOrigin = ({
+  origin,
+  allowedOrigins,
+}: {
+  origin?: string;
+  allowedOrigins: string[];
+}): boolean => origin === undefined || allowedOrigins.includes(origin);
+
+export const corsResponseHeaders = (origin: string): Record<string, string> => ({
+  "access-control-allow-origin": origin,
+  "access-control-expose-headers": DEFAULT_EXPOSED_HEADERS.join(", "),
+  vary: "origin",
+});
+
+export const withCorsResponseHeaders = (response: Response, origin?: string): Response => {
+  if (!origin) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(corsResponseHeaders(origin))) {
+    headers.set(name, value);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
 export const buildCorsPreflightResponse = ({
   origin,
   allowedOrigins,
@@ -119,10 +150,8 @@ export const buildCorsPreflightResponse = ({
     headers: {
       "access-control-allow-headers": DEFAULT_ALLOWED_HEADERS.join(", "),
       "access-control-allow-methods": DEFAULT_ALLOWED_METHODS.join(", "),
-      "access-control-allow-origin": origin,
-      "access-control-expose-headers": DEFAULT_EXPOSED_HEADERS.join(", "),
       "access-control-max-age": "600",
-      vary: "origin",
+      ...corsResponseHeaders(origin),
     },
   });
 };

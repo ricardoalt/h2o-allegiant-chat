@@ -12,10 +12,12 @@ import { createChatStreamLogger, createCorrelationId } from "./observability";
 import {
   buildCorsPreflightResponse,
   createLambdaRequest,
+  isAllowedCorsOrigin,
   type LambdaFunctionUrlEvent,
   type LambdaResponseStream,
   pipeResponseToStream,
   rejectUnsupportedMethod,
+  withCorsResponseHeaders,
 } from "./runtime-adapter";
 
 type StreamifiedHandler = (
@@ -74,6 +76,15 @@ const authRequiredResponse = (): Response =>
     },
   });
 
+const originRejectedResponse = (): Response =>
+  new Response("Origin not allowed.", {
+    status: 403,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "x-error-code": "ORIGIN_NOT_ALLOWED",
+    },
+  });
+
 export const handleChatStreamingRequest = async (
   event: LambdaFunctionUrlEvent,
   responseStream: LambdaResponseStream,
@@ -98,7 +109,18 @@ export const handleChatStreamingRequest = async (
   }
 
   if (method !== "POST") {
-    await pipeResponseToStream(rejectUnsupportedMethod(method), responseStream, {
+    await pipeResponseToStream(
+      withCorsResponseHeaders(rejectUnsupportedMethod(method), origin),
+      responseStream,
+      {
+        decorateResponseStream,
+      },
+    );
+    return;
+  }
+
+  if (!isAllowedCorsOrigin({ origin, allowedOrigins })) {
+    await pipeResponseToStream(originRejectedResponse(), responseStream, {
       decorateResponseStream,
     });
     return;
@@ -109,13 +131,16 @@ export const handleChatStreamingRequest = async (
     request = createLambdaRequest(event);
   } catch (error) {
     await pipeResponseToStream(
-      new Response(error instanceof Error ? error.message : "Invalid request.", {
-        status: 400,
-        headers: {
-          "content-type": "text/plain; charset=utf-8",
-          "x-error-code": "REQUEST_INVALID",
-        },
-      }),
+      withCorsResponseHeaders(
+        new Response(error instanceof Error ? error.message : "Invalid request.", {
+          status: 400,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "x-error-code": "REQUEST_INVALID",
+          },
+        }),
+        origin,
+      ),
       responseStream,
       { decorateResponseStream },
     );
@@ -144,14 +169,19 @@ export const handleChatStreamingRequest = async (
     const response = await handler({ request });
     logger.info("handler_result", { status: response.status });
 
-    await pipeResponseToStream(response, responseStream, { decorateResponseStream });
+    await pipeResponseToStream(withCorsResponseHeaders(response, origin), responseStream, {
+      decorateResponseStream,
+    });
     logger.info("stream_event", { completed: true });
   } catch (error) {
     logger.error("stream_event", {
       errorCategory: error instanceof Error ? error.name : "unknown",
     });
     await pipeResponseToStream(
-      isAuthRequiredError(error) ? authRequiredResponse() : configurationErrorResponse(error),
+      withCorsResponseHeaders(
+        isAuthRequiredError(error) ? authRequiredResponse() : configurationErrorResponse(error),
+        origin,
+      ),
       responseStream,
       { decorateResponseStream },
     );

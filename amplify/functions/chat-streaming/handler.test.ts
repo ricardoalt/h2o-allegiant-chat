@@ -31,10 +31,17 @@ vi.mock("@/lib/storage/lambda-blob-store", () => ({
 vi.mock("@/ai/agents/agent", () => ({ agent: agentMock }));
 vi.mock("ai", () => ({ generateText: generateTextMock }));
 
-const responseStream = (): LambdaResponseStream & { chunks: Buffer[]; ended: boolean } => {
+type TestResponseStream = LambdaResponseStream & {
+  chunks: Buffer[];
+  ended: boolean;
+  metadata?: { statusCode?: number; headers?: Record<string, string> };
+};
+
+const responseStream = (): TestResponseStream => {
   const stream = {
     chunks: [] as Buffer[],
     ended: false,
+    metadata: undefined as TestResponseStream["metadata"],
     write(chunk: Buffer | string) {
       this.chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       return true;
@@ -43,16 +50,24 @@ const responseStream = (): LambdaResponseStream & { chunks: Buffer[]; ended: boo
       this.ended = true;
     },
   };
-  return stream as LambdaResponseStream & { chunks: Buffer[]; ended: boolean };
+  return stream as TestResponseStream;
 };
 
-const postEvent = (): LambdaFunctionUrlEvent => ({
+const captureMetadata =
+  (stream: TestResponseStream) =>
+  (s: LambdaResponseStream, metadata: NonNullable<TestResponseStream["metadata"]>) => {
+    stream.metadata = metadata;
+    return s;
+  };
+
+const postEvent = (overrides: Partial<LambdaFunctionUrlEvent> = {}): LambdaFunctionUrlEvent => ({
   rawPath: "/",
   rawQueryString: "",
   headers: {
     authorization: "Bearer access-token",
     "content-type": "application/json",
     host: "chat.lambda-url.us-east-1.on.aws",
+    origin: "https://main.d22icjbzj7x471.amplifyapp.com",
   },
   requestContext: {
     domainName: "chat.lambda-url.us-east-1.on.aws",
@@ -61,6 +76,7 @@ const postEvent = (): LambdaFunctionUrlEvent => ({
   },
   body: JSON.stringify({ threadId: "thread-1", messages: [] }),
   isBase64Encoded: false,
+  ...overrides,
 });
 
 describe("chat streaming Lambda handler composition", () => {
@@ -68,6 +84,7 @@ describe("chat streaming Lambda handler composition", () => {
     vi.resetModules();
     vi.stubEnv("COGNITO_USER_POOL_ID", "us-east-1_pool");
     vi.stubEnv("COGNITO_USER_POOL_CLIENT_ID", "client-id");
+    vi.stubEnv("CHAT_STREAM_ALLOWED_ORIGINS", "https://main.d22icjbzj7x471.amplifyapp.com");
     createChatPostHandlerMock.mockReset();
     createCognitoAccessTokenVerifierMock.mockClear();
     createLambdaOwnerResolverMock.mockClear();
@@ -84,7 +101,9 @@ describe("chat streaming Lambda handler composition", () => {
     const { handleChatStreamingRequest } = await import("./handler");
     const stream = responseStream();
 
-    await handleChatStreamingRequest(postEvent(), stream, { decorateResponseStream: (s) => s });
+    await handleChatStreamingRequest(postEvent(), stream, {
+      decorateResponseStream: captureMetadata(stream),
+    });
 
     expect(createCognitoAccessTokenVerifierMock).toHaveBeenCalledWith({
       userPoolId: "us-east-1_pool",
@@ -109,9 +128,33 @@ describe("chat streaming Lambda handler composition", () => {
       }),
     );
     expect(Buffer.concat(stream.chunks).toString()).toBe("chat-stream");
+    expect(stream.metadata?.headers).toEqual(
+      expect.objectContaining({
+        "access-control-allow-origin": "https://main.d22icjbzj7x471.amplifyapp.com",
+        "access-control-expose-headers": "x-error-code, x-request-id",
+        vary: "origin",
+      }),
+    );
   });
 
-  it("returns auth errors before chat execution", async () => {
+  it("rejects unapproved cross-origin POST requests before chat execution", async () => {
+    createChatPostHandlerMock.mockReturnValue(vi.fn(async () => new Response("should-not-run")));
+    const { handleChatStreamingRequest } = await import("./handler");
+    const stream = responseStream();
+
+    await handleChatStreamingRequest(
+      postEvent({ headers: { ...postEvent().headers, origin: "https://evil.example" } }),
+      stream,
+      { decorateResponseStream: captureMetadata(stream) },
+    );
+
+    expect(createChatPostHandlerMock).not.toHaveBeenCalled();
+    expect(stream.metadata?.statusCode).toBe(403);
+    expect(stream.metadata?.headers?.["access-control-allow-origin"]).toBeUndefined();
+    expect(Buffer.concat(stream.chunks).toString()).toContain("Origin not allowed");
+  });
+
+  it("returns auth errors before chat execution with CORS headers for approved origins", async () => {
     const { AuthRequiredError } = await import("@/lib/auth/errors");
     createLambdaOwnerResolverMock.mockReturnValueOnce(
       vi.fn(async () => {
@@ -122,12 +165,17 @@ describe("chat streaming Lambda handler composition", () => {
     const { handleChatStreamingRequest } = await import("./handler");
     const stream = responseStream();
 
-    await handleChatStreamingRequest(postEvent(), stream, { decorateResponseStream: (s) => s });
+    await handleChatStreamingRequest(postEvent(), stream, {
+      decorateResponseStream: captureMetadata(stream),
+    });
 
     expect(createChatPostHandlerMock).not.toHaveBeenCalled();
     const response = Buffer.concat(stream.chunks).toString();
     expect(response).toContain("Sign in to continue");
     expect(response).not.toContain("Lambda chat is not configured");
+    expect(stream.metadata?.headers?.["access-control-allow-origin"]).toBe(
+      "https://main.d22icjbzj7x471.amplifyapp.com",
+    );
   });
 
   it("returns configuration errors before chat execution", async () => {
