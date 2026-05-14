@@ -9,10 +9,16 @@ type SentCommand = {
   constructor: { name: string };
 };
 
+type BatchWriteRequest = {
+  DeleteRequest?: { Key: Record<string, AttributeValue> };
+  PutRequest?: { Item: Record<string, AttributeValue> };
+};
+
 class FakeDynamoDbClient implements LambdaDynamoDbClient {
   readonly sessions = new Map<string, Record<string, unknown>>();
   readonly messages = new Map<string, Record<string, unknown>>();
   readonly sent: SentCommand[] = [];
+  readonly unprocessedBatchWriteIds: Array<Set<string>> = [];
 
   async send(command: SentCommand): Promise<Record<string, unknown>> {
     this.sent.push(command);
@@ -82,15 +88,17 @@ class FakeDynamoDbClient implements LambdaDynamoDbClient {
     }
 
     if (name === "BatchWriteItemCommand") {
-      const requestItems = input.RequestItems as Record<
-        string,
-        Array<{
-          DeleteRequest?: { Key: Record<string, AttributeValue> };
-          PutRequest?: { Item: Record<string, AttributeValue> };
-        }>
-      >;
+      const requestItems = input.RequestItems as Record<string, BatchWriteRequest[]>;
+      const unprocessedIds = this.unprocessedBatchWriteIds.shift() ?? new Set<string>();
+      const unprocessedItems: Record<string, BatchWriteRequest[]> = {};
       for (const [table, writes] of Object.entries(requestItems)) {
         for (const write of writes) {
+          const id = batchWriteRequestId(write);
+          if (unprocessedIds.has(id)) {
+            unprocessedItems[table] = [...(unprocessedItems[table] ?? []), write];
+            continue;
+          }
+
           if (write.DeleteRequest) {
             const key = unmarshallRecord(write.DeleteRequest.Key);
             if (table === "messages") this.messages.delete(String(key.id));
@@ -101,7 +109,7 @@ class FakeDynamoDbClient implements LambdaDynamoDbClient {
           }
         }
       }
-      return {};
+      return Object.keys(unprocessedItems).length > 0 ? { UnprocessedItems: unprocessedItems } : {};
     }
 
     throw new Error(`Unhandled command ${name}`);
@@ -114,9 +122,27 @@ const marshallRecord = (record: Record<string, unknown>) =>
 const unmarshallRecord = (record: Parameters<typeof unmarshall>[0]): Record<string, unknown> =>
   unmarshall(record);
 
+const batchWriteRequestId = (request: BatchWriteRequest): string => {
+  if (request.DeleteRequest) {
+    return String(unmarshallRecord(request.DeleteRequest.Key).id);
+  }
+
+  if (request.PutRequest) {
+    return String(unmarshallRecord(request.PutRequest.Item).id);
+  }
+
+  throw new Error("Batch write request must include DeleteRequest or PutRequest");
+};
+
+const batchWriteMessageIds = (command: SentCommand): string[] => {
+  const requestItems = command.input.RequestItems as Record<string, BatchWriteRequest[]>;
+  return (requestItems.messages ?? []).map(batchWriteRequestId);
+};
+
 const createStore = (client = new FakeDynamoDbClient()) => ({
   client,
   store: createLambdaDynamoDbChatStore({
+    batchWriteRetryDelay: async () => {},
     client,
     messageSessionIdIndexName: "messagesBySessionId",
     messageTableName: "messages",
@@ -150,6 +176,16 @@ const assistantMessageWithUndefinedMetadata = (id: string): MyUIMessage =>
       },
     ],
   }) as unknown as MyUIMessage;
+
+const seedMessages = async (
+  store: ReturnType<typeof createLambdaDynamoDbChatStore>,
+  threadId: string,
+  count: number,
+): Promise<void> => {
+  for (let index = 0; index < count; index += 1) {
+    await store.saveMessage(threadId, userMessage(`msg-${index}`));
+  }
+};
 
 describe("Lambda DynamoDB ChatStore", () => {
   it("creates and reads a thread with resourceId equal to the owner userId", async () => {
@@ -253,6 +289,52 @@ describe("Lambda DynamoDB ChatStore", () => {
     await expect(store.getThreadMessages("thread-1")).resolves.toEqual([]);
   });
 
+  it("chunks delete batch writes to DynamoDB's 25 item limit", async () => {
+    const { client, store } = createStore();
+    await store.createThread("thread-1", "user-1");
+    await seedMessages(store, "thread-1", 26);
+
+    await store.deleteThread("thread-1");
+
+    const batchWrites = client.sent.filter(
+      (command) => command.constructor.name === "BatchWriteItemCommand",
+    );
+    expect(batchWrites.map((command) => batchWriteMessageIds(command).length)).toEqual([25, 1]);
+    await expect(store.getThreadMessages("thread-1")).resolves.toEqual([]);
+  });
+
+  it("retries only unprocessed delete batch writes", async () => {
+    const { client, store } = createStore();
+    await store.createThread("thread-1", "user-1");
+    await seedMessages(store, "thread-1", 3);
+    client.unprocessedBatchWriteIds.push(new Set(["msg-1"]));
+
+    await store.deleteThread("thread-1");
+
+    const batchWrites = client.sent.filter(
+      (command) => command.constructor.name === "BatchWriteItemCommand",
+    );
+    expect(batchWrites.map(batchWriteMessageIds)).toEqual([["msg-0", "msg-1", "msg-2"], ["msg-1"]]);
+    await expect(store.getThreadMessages("thread-1")).resolves.toEqual([]);
+  });
+
+  it("throws when delete batch writes remain unprocessed after bounded retries", async () => {
+    const { client, store } = createStore();
+    await store.createThread("thread-1", "user-1");
+    await seedMessages(store, "thread-1", 1);
+    client.unprocessedBatchWriteIds.push(
+      new Set(["msg-0"]),
+      new Set(["msg-0"]),
+      new Set(["msg-0"]),
+      new Set(["msg-0"]),
+      new Set(["msg-0"]),
+    );
+
+    await expect(store.deleteThread("thread-1")).rejects.toThrow(
+      "DynamoDB batch write failed after 5 attempts with 1 unprocessed item(s).",
+    );
+  });
+
   it("replaces assistant message after a target message and truncates later messages", async () => {
     const { client, store } = createStore();
     await store.createThread("thread-1", "user-1");
@@ -301,6 +383,33 @@ describe("Lambda DynamoDB ChatStore", () => {
         parts: [{ type: "step-start" }, { type: "text", text: "assistant response" }],
       },
     ]);
+  });
+
+  it("chunks replacement put batch writes and retries only unprocessed puts", async () => {
+    const { client, store } = createStore();
+    await store.createThread("thread-1", "user-1");
+    await seedMessages(store, "thread-1", 26);
+    await store.saveMessage("thread-1", assistantMessage("assistant-old"));
+    await store.saveMessage("thread-1", userMessage("user-later"));
+    client.unprocessedBatchWriteIds.push(new Set(), new Set(), new Set(["msg-10"]));
+
+    await store.replaceAssistantMessageAfter(
+      "thread-1",
+      "assistant-old",
+      assistantMessage("assistant-new"),
+    );
+
+    const batchWrites = client.sent.filter(
+      (command) => command.constructor.name === "BatchWriteItemCommand",
+    );
+    expect(batchWrites.map(batchWriteMessageIds)).toEqual([
+      Array.from({ length: 25 }, (_, index) => `msg-${index}`),
+      ["msg-25", "assistant-old", "user-later"],
+      Array.from({ length: 25 }, (_, index) => `msg-${index}`),
+      ["msg-10"],
+      ["msg-25", "assistant-new"],
+    ]);
+    await expect(store.getThreadMessages("thread-1")).resolves.toHaveLength(27);
   });
 
   it("clones a thread up to the requested message id", async () => {

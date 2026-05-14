@@ -593,3 +593,53 @@ The synthetic `streaming-canary` Function URL is **retained** until real Cognito
 ### Workload / PR Boundary
 
 - Boundary: minimal Lambda ChatStore marshalling hotfix only; no CORS, frontend transport, AI SDK stream protocol, AI Elements rendering, auth, blob storage, model, or Bedrock behavior changes.
+
+## Post-Deploy Hardening Slice — DynamoDB BatchWrite Chunking and Retry
+
+### Completed Tasks
+
+- Added bounded `BatchWriteItem` chunking for the Lambda direct DynamoDB ChatStore so no request sends more than 25 write requests.
+- Added retry handling for DynamoDB `UnprocessedItems`; retries only the returned unprocessed subset instead of replaying the full original batch.
+- Added a bounded failure path with an explicit error when unprocessed writes remain after the configured attempt limit.
+- Routed all existing Lambda ChatStore batch paths through the helper:
+  - replacement/regenerate bulk put path in `putMessageRows(...)`;
+  - `deleteThread(...)` message delete path;
+  - `replaceAssistantMessageAfter(...)` delete-before-rewrite path.
+- Preserved native JSON/map `payloadJson`, AppSync-compatible owner metadata, message ordering via `position`, and the public `ChatStore` API.
+
+### Files Changed
+
+- `src/lib/storage/lambda-chat-store.ts` — added local chunk/retry batch write helper and wired all `BatchWriteItem` callsites through it.
+- `src/lib/storage/lambda-chat-store.test.ts` — extended the fake DynamoDB client to simulate `UnprocessedItems` and added regression coverage for chunking, retrying only unprocessed subsets, and exhausted retries.
+- `openspec/changes/port-chat-streaming-to-lambda/apply-progress.md` — recorded this focused hardening evidence.
+
+### TDD Cycle Evidence (BatchWrite hardening)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Harden Lambda ChatStore `BatchWriteItem` calls for long threads and partial DynamoDB processing | `src/lib/storage/lambda-chat-store.test.ts` | Unit/storage adapter | ✅ `bun run test src/lib/storage/lambda-chat-store.test.ts` passed 10/10 before edits | ✅ New tests failed: 26-item delete sent one 26-write batch, unprocessed deletes were not retried, exhausted unprocessed deletes did not throw, and replacement bulk writes were not chunked/retried | ✅ Added local `batchWriteAllWithRetry(...)` using 25-item chunks, `UnprocessedItems` subset retries, bounded attempts, and explicit exhausted-retry error; focused tests passed 14/14 | ✅ Covered DeleteRequest chunking/retry/failure and PutRequest chunking/retry through replacement/regenerate flow; verified retry sends only unprocessed IDs | ✅ Centralized chunking and default retry delay helpers; injected no-op retry delay in tests; Biome formatted changed files and focused tests stayed green |
+
+### Test Commands Run (BatchWrite hardening)
+
+- `bun run test src/lib/storage/lambda-chat-store.test.ts` — ✅ baseline 10/10 passed before edits.
+- `bun run test src/lib/storage/lambda-chat-store.test.ts` — ❌ RED: 4 new failures for unchunked 26-item batches, missing `UnprocessedItems` retry, missing exhausted-retry error, and unchunked/unretried replacement bulk puts.
+- `bun run test src/lib/storage/lambda-chat-store.test.ts` — ✅ GREEN after implementation and test correction: 14/14 passed.
+- `bunx biome check --write src/lib/storage/lambda-chat-store.ts src/lib/storage/lambda-chat-store.test.ts` — ✅ formatted changed files.
+- `bun run test src/lib/storage/lambda-chat-store.test.ts` — ✅ post-refactor focused tests passed 14/14.
+- `bunx tsc --noEmit` — ✅ passed.
+- `bun run check` — ✅ passed, 141 files checked.
+- `bun run test` — ✅ passed, 31 files / 140 tests.
+
+### Deviations From Design
+
+- None. This stays inside the direct DynamoDB fallback ChatStore adapter selected for Lambda and does not change streaming, auth, frontend transport, AI SDK protocol, AI Elements rendering, blob storage, model, or Bedrock behavior.
+
+### Remaining Tasks
+
+- Parent review and optional `sdd-verify` pass.
+- Commit/deploy this hardening slice after review.
+- Long-thread production behavior should be safer, but delete-then-put replacement remains non-transactional by design; if strict atomic regenerate semantics are required later, evaluate DynamoDB transactions or a different storage model as a separate design decision.
+
+### Workload / PR Boundary
+
+- Boundary: minimal Lambda ChatStore DynamoDB batch hardening only; no CORS, frontend transport, streaming adapter, auth, blob storage, AI SDK protocol, AI Elements rendering, model, or Bedrock changes.

@@ -1,6 +1,7 @@
 import {
   type AttributeValue,
   BatchWriteItemCommand,
+  type BatchWriteItemCommandInput,
   DeleteItemCommand,
   DynamoDBClient,
   type DynamoDBClientConfig,
@@ -24,6 +25,8 @@ export type LambdaDynamoDbChatStoreConfig = {
   messageSessionIdIndexName: string;
   now?: () => Date;
   idFactory?: () => string;
+  batchWriteMaxAttempts?: number;
+  batchWriteRetryDelay?: (attempt: number) => Promise<void>;
 };
 
 export type LambdaDynamoDbChatStoreEnv = {
@@ -56,6 +59,10 @@ type MessageItem = {
   __typename?: "Message";
 };
 
+type BatchWriteRequest = NonNullable<
+  NonNullable<BatchWriteItemCommandInput["RequestItems"]>[string]
+>[number];
+
 const isStoredUIMessage = (value: unknown): value is MyUIMessage => {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -80,6 +87,19 @@ const appSyncOwner = (userId: string): string => `${userId}::${userId}`;
 
 const marshallItem = (value: object): Record<string, AttributeValue> =>
   marshall(value, { removeUndefinedValues: true });
+
+const batchWriteChunks = <T>(items: T[], size = 25): T[][] => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const defaultBatchWriteRetryDelay = (attempt: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, Math.min(1000, 50 * 2 ** Math.max(0, attempt - 1)));
+  });
 
 const parseMessagePayload = (message: MessageItem): MyUIMessage | null => {
   const parsed =
@@ -117,6 +137,8 @@ export const createLambdaDynamoDbChatStoreFromEnv = (
   });
 
 export const createLambdaDynamoDbChatStore = ({
+  batchWriteMaxAttempts = 5,
+  batchWriteRetryDelay = defaultBatchWriteRetryDelay,
   client,
   idFactory = nanoid,
   messageSessionIdIndexName,
@@ -126,6 +148,34 @@ export const createLambdaDynamoDbChatStore = ({
   sessionUserIdIndexName,
 }: LambdaDynamoDbChatStoreConfig): ChatStore => {
   const nowIso = () => now().toISOString();
+
+  const batchWriteAllWithRetry = async (
+    tableName: string,
+    requests: BatchWriteRequest[],
+  ): Promise<void> => {
+    for (const chunk of batchWriteChunks(requests)) {
+      let pending = chunk;
+      for (let attempt = 1; pending.length > 0 && attempt <= batchWriteMaxAttempts; attempt += 1) {
+        const result = await client.send(
+          new BatchWriteItemCommand({
+            RequestItems: {
+              [tableName]: pending,
+            },
+          }),
+        );
+        pending = (result.UnprocessedItems?.[tableName] ?? []) as BatchWriteRequest[];
+        if (pending.length > 0 && attempt < batchWriteMaxAttempts) {
+          await batchWriteRetryDelay(attempt);
+        }
+      }
+
+      if (pending.length > 0) {
+        throw new Error(
+          `DynamoDB batch write failed after ${batchWriteMaxAttempts} attempts with ${pending.length} unprocessed item(s).`,
+        );
+      }
+    }
+  };
 
   const listMessageRows = async (threadId: string): Promise<MessageItem[]> => {
     const result = await client.send(
@@ -152,28 +202,25 @@ export const createLambdaDynamoDbChatStore = ({
       return;
     }
 
-    await client.send(
-      new BatchWriteItemCommand({
-        RequestItems: {
-          [messageTableName]: messages.map((message, position) => {
-            const timestamp = nowIso();
-            return {
-              PutRequest: {
-                Item: marshallItem({
-                  __typename: "Message",
-                  createdAt: timestamp,
-                  id: message.id,
-                  owner: appSyncOwner(userId),
-                  payloadJson: message,
-                  position,
-                  role: message.role,
-                  sessionId: threadId,
-                  updatedAt: timestamp,
-                } satisfies MessageItem),
-              },
-            };
-          }),
-        },
+    await batchWriteAllWithRetry(
+      messageTableName,
+      messages.map((message, position) => {
+        const timestamp = nowIso();
+        return {
+          PutRequest: {
+            Item: marshallItem({
+              __typename: "Message",
+              createdAt: timestamp,
+              id: message.id,
+              owner: appSyncOwner(userId),
+              payloadJson: message,
+              position,
+              role: message.role,
+              sessionId: threadId,
+              updatedAt: timestamp,
+            } satisfies MessageItem),
+          },
+        };
       }),
     );
   };
@@ -294,14 +341,11 @@ export const createLambdaDynamoDbChatStore = ({
     async deleteThread(threadId: string): Promise<void> {
       const messages = await listMessageRows(threadId);
       if (messages.length > 0) {
-        await client.send(
-          new BatchWriteItemCommand({
-            RequestItems: {
-              [messageTableName]: messages.map((message) => ({
-                DeleteRequest: { Key: marshallItem({ id: message.id }) },
-              })),
-            },
-          }),
+        await batchWriteAllWithRetry(
+          messageTableName,
+          messages.map((message) => ({
+            DeleteRequest: { Key: marshallItem({ id: message.id }) },
+          })),
         );
       }
 
@@ -330,14 +374,11 @@ export const createLambdaDynamoDbChatStore = ({
       }
 
       if (messageRows.length > 0) {
-        await client.send(
-          new BatchWriteItemCommand({
-            RequestItems: {
-              [messageTableName]: messageRows.map((message) => ({
-                DeleteRequest: { Key: marshallItem({ id: message.id }) },
-              })),
-            },
-          }),
+        await batchWriteAllWithRetry(
+          messageTableName,
+          messageRows.map((message) => ({
+            DeleteRequest: { Key: marshallItem({ id: message.id }) },
+          })),
         );
       }
 
