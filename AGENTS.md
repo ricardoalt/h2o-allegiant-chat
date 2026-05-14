@@ -51,7 +51,7 @@
 
 ## Skill and Agent Wiring Gotchas
 
-- The active assistant toolchain is `loadSkill` only (`src/ai/agents/agent.ts`). System prompt lives in `src/ai/prompts/water-sector.md`.
+- The active assistant toolchain is `loadSkill` only (`src/ai/agents/agent.ts`). System prompt is exported from `src/ai/prompts/water-sector.ts` (was `water-sector.md`; moved to TypeScript to avoid Lambda `readFileSync`/`import.meta.url` bundle issues — see `port-chat-streaming-to-lambda` SDD).
 - `webSearchEnabled` is in request/draft types, but composer currently always sends `false` and no web-search tool is wired into the active agent.
 - UI supports `tool-updateWorkingMemory` rendering, but the active agent does not currently expose that tool.
 - Skills live under `src/ai/skills/<name>/SKILL.md`. The `loadSkillTool` (`src/ai/tools/load-skill.ts`) resolves them by directory name at runtime — no static list to keep in sync.

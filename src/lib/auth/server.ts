@@ -3,11 +3,9 @@ import { cookies } from "next/headers";
 import { assertAmplifyOutputsConfigured } from "@/config/amplify-runtime";
 import { runWithAmplifyServerContext } from "@/lib/auth/amplify-server";
 import { toAuthRequiredError } from "@/lib/auth/errors";
+import type { OwnerContext } from "@/lib/auth/owner-context";
 
-export type OwnerContext = {
-  userId: string;
-  identityId: string;
-};
+export type { OwnerContext };
 
 export async function getCurrentOwner(): Promise<OwnerContext> {
   assertAmplifyOutputsConfigured();

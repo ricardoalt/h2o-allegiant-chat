@@ -10,7 +10,7 @@ const cfnUserPool = vi.hoisted(() => ({
     | undefined,
 }));
 
-const createStackMock = vi.hoisted(() => vi.fn(() => ({ stackName: "streaming-canary" })));
+const createStackMock = vi.hoisted(() => vi.fn((stackName: string) => ({ stackName })));
 
 const defineBackendMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -19,41 +19,66 @@ const defineBackendMock = vi.hoisted(() =>
         cfnResources: {
           cfnUserPool,
         },
+        userPool: { userPoolId: "UserPoolId" },
+        userPoolClient: { userPoolClientId: "UserPoolClientId" },
       },
     },
     createStack: createStackMock,
+    data: {
+      resources: {
+        tables: {
+          Session: { tableArn: "arn:session", tableName: "SessionTable" },
+          Message: { tableArn: "arn:message", tableName: "MessageTable" },
+        },
+      },
+    },
+    storage: {
+      resources: {
+        bucket: { bucketArn: "arn:bucket", bucketName: "BucketName" },
+      },
+    },
   })),
 );
 
 const addFunctionUrlMock = vi.hoisted(() =>
   vi.fn(() => ({ url: "https://canary.lambda-url.test/" })),
 );
+const addToRolePolicyMock = vi.hoisted(() => vi.fn());
 const nodejsFunctionMock = vi.hoisted(() =>
   vi.fn(() => ({
     addFunctionUrl: addFunctionUrlMock,
+    addToRolePolicy: addToRolePolicyMock,
   })),
 );
 const cfnOutputMock = vi.hoisted(() => vi.fn());
+const policyStatementMock = vi.hoisted(() => vi.fn((input) => ({ policy: input })));
 
 vi.mock("@aws-amplify/backend", () => ({
   defineBackend: defineBackendMock,
 }));
 
 vi.mock("aws-cdk-lib", () => ({
+  Aws: { ACCOUNT_ID: "123456789012" },
   CfnOutput: cfnOutputMock,
   Duration: {
     seconds: vi.fn((seconds: number) => ({ seconds })),
   },
 }));
 
+vi.mock("aws-cdk-lib/aws-iam", () => ({
+  PolicyStatement: policyStatementMock,
+}));
+
 vi.mock("aws-cdk-lib/aws-lambda", () => ({
   FunctionUrlAuthType: { NONE: "NONE" },
+  HttpMethod: { POST: "POST" },
   InvokeMode: { RESPONSE_STREAM: "RESPONSE_STREAM" },
   Runtime: { NODEJS_22_X: "NODEJS_22_X" },
 }));
 
 vi.mock("aws-cdk-lib/aws-lambda-nodejs", () => ({
   NodejsFunction: nodejsFunctionMock,
+  OutputFormat: { ESM: "esm" },
 }));
 
 vi.mock("./auth/resource", () => ({ auth: { resource: "auth" } }));
@@ -67,6 +92,8 @@ describe("Amplify backend", () => {
     createStackMock.mockClear();
     nodejsFunctionMock.mockClear();
     addFunctionUrlMock.mockClear();
+    addToRolePolicyMock.mockClear();
+    policyStatementMock.mockClear();
     cfnOutputMock.mockClear();
     cfnUserPool.adminCreateUserConfig = undefined;
 
@@ -83,6 +110,7 @@ describe("Amplify backend", () => {
       allowAdminCreateUserOnly: true,
     });
     expect(createStackMock).toHaveBeenCalledWith("streaming-canary");
+    expect(createStackMock).toHaveBeenCalledWith("chat-streaming");
     expect(nodejsFunctionMock).toHaveBeenCalledWith(
       { stackName: "streaming-canary" },
       "StreamingCanary",
@@ -91,8 +119,39 @@ describe("Amplify backend", () => {
         timeout: { seconds: 15 },
       }),
     );
+    expect(nodejsFunctionMock).toHaveBeenCalledWith(
+      { stackName: "chat-streaming" },
+      "ChatStreamingFunction",
+      expect.objectContaining({
+        bundling: {
+          banner:
+            "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+          format: "esm",
+        },
+        environment: expect.objectContaining({
+          COGNITO_USER_POOL_ID: "UserPoolId",
+          COGNITO_USER_POOL_CLIENT_ID: "UserPoolClientId",
+          LAMBDA_CHAT_SESSION_TABLE_NAME: "SessionTable",
+          LAMBDA_CHAT_MESSAGE_TABLE_NAME: "MessageTable",
+          LAMBDA_CHAT_BLOB_BUCKET_NAME: "BucketName",
+        }),
+        runtime: "NODEJS_22_X",
+        timeout: { seconds: 60 },
+      }),
+    );
     expect(addFunctionUrlMock).toHaveBeenCalledWith({
       authType: "NONE",
+      invokeMode: "RESPONSE_STREAM",
+    });
+    expect(addFunctionUrlMock).toHaveBeenCalledWith({
+      authType: "NONE",
+      cors: {
+        allowedHeaders: ["authorization", "content-type", "x-request-id"],
+        allowedMethods: ["POST"],
+        allowedOrigins: ["https://main.d22icjbzj7x471.amplifyapp.com", "http://localhost:3000"],
+        exposedHeaders: ["x-error-code", "x-request-id"],
+        maxAge: { seconds: 600 },
+      },
       invokeMode: "RESPONSE_STREAM",
     });
     expect(cfnOutputMock).toHaveBeenCalledWith(
@@ -100,6 +159,29 @@ describe("Amplify backend", () => {
       "StreamingCanaryFunctionUrl",
       { value: "https://canary.lambda-url.test/" },
     );
+    expect(cfnOutputMock).toHaveBeenCalledWith(
+      { stackName: "chat-streaming" },
+      "ChatStreamingFunctionUrl",
+      { value: "https://canary.lambda-url.test/" },
+    );
+    expect(policyStatementMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining(["dynamodb:GetItem", "dynamodb:Query"]),
+        resources: expect.arrayContaining(["arn:session", "arn:message"]),
+      }),
+    );
+    expect(policyStatementMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining(["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
+        resources: expect.arrayContaining(["arn:bucket/lambda-chat/attachments/*"]),
+      }),
+    );
+    expect(policyStatementMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining(["bedrock:InvokeModelWithResponseStream"]),
+      }),
+    );
+    expect(addToRolePolicyMock).toHaveBeenCalledTimes(3);
   });
 
   it("preserves existing Cognito invite config while enabling admin-created users only", async () => {

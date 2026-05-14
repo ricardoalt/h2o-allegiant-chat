@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { cloneThread, type Thread } from "@app/actions/threads";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, type PrepareSendMessagesRequest } from "ai";
+import { fetchAuthSession } from "aws-amplify/auth";
 import { GitBranchIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -15,7 +16,6 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import {
   Message,
   MessageAction,
@@ -27,6 +27,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Source, SourceContent, SourceTrigger } from "@/components/ai-elements/sources";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import { WorkingMemoryUpdate } from "@/components/ai-elements/working-memory-update";
 import { ChatPromptComposer } from "@/components/chat-prompt-composer";
 import { useDraftInput } from "@/hooks/use-draft-input";
@@ -45,25 +46,65 @@ type ChatSendRequestInput = Pick<
   "body" | "messageId" | "messages" | "trigger"
 >;
 
+type ChatTransportEnv = {
+  NEXT_PUBLIC_CHAT_TRANSPORT?: string;
+  NEXT_PUBLIC_CHAT_LAMBDA_URL?: string;
+};
+
+type PreparedChatRequest = {
+  body: object;
+  headers?: Record<string, string>;
+};
+
+const chatTransportMode = (
+  env: ChatTransportEnv = process.env as unknown as ChatTransportEnv,
+): "lambda" | "same-origin" =>
+  env.NEXT_PUBLIC_CHAT_TRANSPORT === "lambda" ? "lambda" : "same-origin";
+
+export const getChatTransportApi = (
+  env: ChatTransportEnv = process.env as unknown as ChatTransportEnv,
+): string => {
+  if (chatTransportMode(env) !== "lambda") {
+    return "/api/chat";
+  }
+
+  return env.NEXT_PUBLIC_CHAT_LAMBDA_URL?.trim() || "/api/chat";
+};
+
+const getAccessToken = async (): Promise<string> => {
+  const session = await fetchAuthSession();
+  const token = session.tokens?.accessToken?.toString();
+  if (!token) {
+    throw new Error("No Cognito access token is available for Lambda chat transport.");
+  }
+  return token;
+};
+
 export const prepareChatSendMessagesRequest = ({
   body,
   messageId,
   messages,
   trigger,
-}: ChatSendRequestInput): { body: object } => {
+}: ChatSendRequestInput): PreparedChatRequest | Promise<PreparedChatRequest> => {
   const requestBody = body ?? {};
-
-  return {
-    body: {
-      threadId: requestBody.threadId,
-      messages,
-      trigger,
-      messageId,
-      modelId: requestBody.modelId,
-      webSearchEnabled:
-        typeof requestBody.webSearchEnabled === "boolean" ? requestBody.webSearchEnabled : false,
-    },
+  const preparedBody = {
+    threadId: requestBody.threadId,
+    messages,
+    trigger,
+    messageId,
+    modelId: requestBody.modelId,
+    webSearchEnabled:
+      typeof requestBody.webSearchEnabled === "boolean" ? requestBody.webSearchEnabled : false,
   };
+
+  if (requestBody.transportMode !== "lambda") {
+    return { body: preparedBody };
+  }
+
+  return getAccessToken().then((token) => ({
+    body: preparedBody,
+    headers: { authorization: `Bearer ${token}` },
+  }));
 };
 
 export function ChatRuntimeError({ message }: { message: string }): React.JSX.Element {
@@ -135,9 +176,10 @@ export function ChatInterface({
       }
     },
     transport: new DefaultChatTransport({
-      api: "/api/chat",
+      api: getChatTransportApi(),
       body: {
         threadId,
+        transportMode: chatTransportMode(),
       },
       prepareSendMessagesRequest: prepareChatSendMessagesRequest,
     }),

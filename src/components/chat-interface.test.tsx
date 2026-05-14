@@ -1,9 +1,20 @@
+import { fetchAuthSession } from "aws-amplify/auth";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseChatRequest } from "@/lib/chat-helpers";
 import { canSubmitPromptMessage } from "@/lib/chat-utils";
 import type { MyUIMessage } from "@/types/ui-message";
-import { ChatRuntimeError, prepareChatSendMessagesRequest } from "./chat-interface";
+import {
+  ChatRuntimeError,
+  getChatTransportApi,
+  prepareChatSendMessagesRequest,
+} from "./chat-interface";
+
+vi.mock("aws-amplify/auth", () => ({
+  fetchAuthSession: vi.fn(),
+}));
+
+const fetchAuthSessionMock = vi.mocked(fetchAuthSession);
 
 describe("canSubmitPromptMessage", () => {
   it("bloquea envío cuando no hay texto ni adjuntos", () => {
@@ -41,8 +52,23 @@ describe("canSubmitPromptMessage", () => {
   });
 });
 
+describe("chat transport configuration", () => {
+  it("defaults to same-origin /api/chat", () => {
+    expect(getChatTransportApi({})).toBe("/api/chat");
+  });
+
+  it("uses the configured Lambda Function URL in lambda mode", () => {
+    expect(
+      getChatTransportApi({
+        NEXT_PUBLIC_CHAT_TRANSPORT: "lambda",
+        NEXT_PUBLIC_CHAT_LAMBDA_URL: "https://chat.lambda-url.us-east-1.on.aws/",
+      }),
+    ).toBe("https://chat.lambda-url.us-east-1.on.aws/");
+  });
+});
+
 describe("prepareChatSendMessagesRequest", () => {
-  it("serializes AI SDK v6 send options into the chat route payload contract", () => {
+  it("serializes AI SDK v6 send options into the chat route payload contract", async () => {
     const messages: MyUIMessage[] = [
       {
         id: "message-1",
@@ -51,7 +77,7 @@ describe("prepareChatSendMessagesRequest", () => {
       },
     ];
 
-    const prepared = prepareChatSendMessagesRequest({
+    const prepared = await prepareChatSendMessagesRequest({
       body: {
         threadId: "thread-1",
         modelId: "claude-sonnet-4-6",
@@ -73,7 +99,36 @@ describe("prepareChatSendMessagesRequest", () => {
     expect(parseChatRequest(prepared.body).threadId).toBe("thread-1");
   });
 
-  it("preserves regenerate message ids for server-side regeneration", () => {
+  it("adds a Cognito access-token Authorization header in lambda mode", async () => {
+    fetchAuthSessionMock.mockResolvedValueOnce({
+      tokens: {
+        accessToken: { toString: () => "access-token" },
+      },
+    } as Awaited<ReturnType<typeof fetchAuthSession>>);
+    const messages: MyUIMessage[] = [
+      {
+        id: "message-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+
+    const prepared = await prepareChatSendMessagesRequest({
+      body: {
+        threadId: "thread-1",
+        modelId: "claude-sonnet-4-6",
+        transportMode: "lambda",
+      },
+      messageId: undefined,
+      messages,
+      trigger: "submit-message",
+    });
+
+    expect(prepared.headers).toEqual({ authorization: "Bearer access-token" });
+    expect(prepared.body).toMatchObject({ threadId: "thread-1", messages });
+  });
+
+  it("preserves regenerate message ids for server-side regeneration", async () => {
     const messages: MyUIMessage[] = [
       {
         id: "message-1",
@@ -82,7 +137,7 @@ describe("prepareChatSendMessagesRequest", () => {
       },
     ];
 
-    const prepared = prepareChatSendMessagesRequest({
+    const prepared = await prepareChatSendMessagesRequest({
       body: { threadId: "thread-1", modelId: "claude-sonnet-4-6" },
       messageId: "assistant-1",
       messages,

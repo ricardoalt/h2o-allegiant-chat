@@ -32,6 +32,8 @@ amplify_outputs.json
 # Tooling metadata
 .atl/
 .pi/
+.pi-lens/
+reports/
 
 # Logs and test artifacts
 *.log

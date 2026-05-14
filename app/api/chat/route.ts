@@ -1,4 +1,4 @@
-import { chatPost } from "@/lib/chat-handler";
+import { chatPost } from "@/lib/chat-handler-next";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;

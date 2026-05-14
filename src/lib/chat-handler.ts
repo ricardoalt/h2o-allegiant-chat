@@ -2,14 +2,13 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
-  generateText,
+  type generateText,
   validateUIMessages,
 } from "ai";
 import { nanoid } from "nanoid";
 import type { Agent } from "@/ai/agents/agent";
-import { getEnv } from "@/config/env";
 import { MODELS } from "@/config/models";
-import { getCurrentOwner, type OwnerContext } from "@/lib/auth/server";
+import type { OwnerContext } from "@/lib/auth/owner-context";
 import { bedrockProvider } from "@/lib/bedrock-provider";
 import {
   ATTACHMENT_ERROR_CODES,
@@ -28,9 +27,7 @@ import {
   isSupportedAttachmentMediaType,
 } from "@/lib/storage/attachment-metadata";
 import type { BlobStore } from "@/lib/storage/blob-store";
-import type { ChatStore } from "@/lib/storage/chat-store";
-import { getChatStore } from "@/lib/storage/chat-store";
-import { createS3BlobStore } from "@/lib/storage/s3-blob-store";
+import type { ChatStore } from "@/lib/storage/chat-store-types";
 import type { MyUIMessage } from "@/types/ui-message";
 
 type GenerateTextFn = typeof generateText;
@@ -378,42 +375,4 @@ export const createChatPostHandler = (deps: Dependencies) => {
 
     return createUIMessageStreamResponse({ stream });
   };
-};
-
-let cachedHandler: ReturnType<typeof createChatPostHandler> | null = null;
-
-const getDefaultHandler = async (): Promise<ReturnType<typeof createChatPostHandler>> => {
-  if (cachedHandler) {
-    return cachedHandler;
-  }
-
-  const env = process.env.CHAT_BLOB_STORE_RUNTIME === "s3" ? getEnv() : null;
-  const chatStore = await getChatStore();
-  const blobStore = env
-    ? createS3BlobStore({
-        bucket: env.CHAT_ATTACHMENTS_S3_BUCKET,
-        prefix: env.CHAT_ATTACHMENTS_S3_PREFIX,
-        region: env.AWS_REGION,
-        accessKeyId: env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-        sessionToken: env.AWS_SESSION_TOKEN,
-      })
-    : (await import("@/lib/storage/amplify-blob-store")).createAmplifyBlobStore();
-
-  const { agent } = await import("@/ai/agents/agent");
-
-  cachedHandler = createChatPostHandler({
-    chatStore,
-    blobStore,
-    agent,
-    generateText,
-    getOwner: getCurrentOwner,
-  });
-
-  return cachedHandler;
-};
-
-export const chatPost = async ({ request }: { request: Request }): Promise<Response> => {
-  const handler = await getDefaultHandler();
-  return handler({ request });
 };
