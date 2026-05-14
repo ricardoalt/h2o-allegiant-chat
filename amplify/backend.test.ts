@@ -148,9 +148,15 @@ describe("Amplify backend", () => {
     });
     expect(chatFunctionUrlConfig).toEqual({
       authType: "NONE",
+      cors: {
+        allowedHeaders: ["authorization", "content-type", "x-request-id"],
+        allowedMethods: ["POST"],
+        allowedOrigins: ["https://main.d22icjbzj7x471.amplifyapp.com", "http://localhost:3000"],
+        exposedHeaders: ["x-error-code", "x-request-id"],
+        maxAge: { seconds: 600 },
+      },
       invokeMode: "RESPONSE_STREAM",
     });
-    expect(chatFunctionUrlConfig).not.toHaveProperty("cors");
     expect(cfnOutputMock).toHaveBeenCalledWith(
       { stackName: "streaming-canary" },
       "StreamingCanaryFunctionUrl",

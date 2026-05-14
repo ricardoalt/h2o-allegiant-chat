@@ -354,3 +354,54 @@ The synthetic `streaming-canary` Function URL is **retained** until real Cognito
 ### Workload / PR Boundary
 
 - Boundary: minimal infrastructure metadata hotfix only; no chat handler, frontend transport, storage, auth, or model behavior changes.
+
+## Post-Deploy Fix Slice — Restore Function URL Preflight CORS
+
+### Completed Tasks
+
+- Restored CDK-managed CORS on the chat streaming Function URL so browser preflight `OPTIONS` requests are answered by AWS with the required CORS headers.
+- Removed handler-owned CORS response header injection from POST success/error/request-error/unsupported-method paths to avoid duplicate `access-control-allow-origin` when Function URL CORS also decorates responses.
+- Preserved application-level origin rejection before POST chat execution for unapproved browser origins.
+- Preserved `InvokeMode.RESPONSE_STREAM` and `authType: NONE` for the chat Function URL.
+- Removed the now-unused `withCorsResponseHeaders` runtime helper.
+
+### Files Changed
+
+- `amplify/backend.ts` — restored Function URL CORS configuration for chat streaming while preserving response streaming mode.
+- `amplify/backend.test.ts` — updated infrastructure assertions to require Function URL CORS for preflight support.
+- `amplify/functions/chat-streaming/handler.ts` — removed handler-owned CORS wrapping from POST/error responses.
+- `amplify/functions/chat-streaming/handler.test.ts` — updated handler assertions to verify POST/auth responses no longer inject CORS metadata themselves.
+- `amplify/functions/chat-streaming/runtime-adapter.ts` — removed unused handler-owned CORS response wrapper; retained preflight helper for direct handler tests/local fallback.
+- `openspec/changes/port-chat-streaming-to-lambda/apply-progress.md` — recorded this third CORS hotfix evidence.
+
+### TDD Evidence (preflight CORS hotfix)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Restore Function URL CORS and remove handler-owned POST ACAO | `amplify/backend.test.ts`, `amplify/functions/chat-streaming/handler.test.ts` | Unit/infrastructure composition | ✅ `bun run test amplify/backend.test.ts amplify/functions/chat-streaming/handler.test.ts amplify/functions/chat-streaming/runtime-adapter.test.ts` passed 16/16 before edits | ✅ Updated tests failed: chat Function URL lacked `cors`; handler still injected ACAO on success/auth paths | ✅ Restored Function URL `cors` and removed handler CORS wrappers; focused backend+handler tests passed 6/6 | ✅ Re-ran runtime adapter tests with backend+handler tests; 16/16 passed, preserving preflight helper and streaming adapter behavior | ✅ Removed unused `withCorsResponseHeaders`; TypeScript/Biome/checks stayed green |
+
+### Test Commands Run (preflight CORS hotfix)
+
+- `bun run test amplify/backend.test.ts amplify/functions/chat-streaming/handler.test.ts amplify/functions/chat-streaming/runtime-adapter.test.ts` — ✅ baseline 16/16 passed before edits.
+- `bun run test amplify/backend.test.ts amplify/functions/chat-streaming/handler.test.ts` — ❌ RED: expected Function URL `cors` and no handler-owned ACAO, but implementation still had the opposite behavior.
+- `bun run test amplify/backend.test.ts amplify/functions/chat-streaming/handler.test.ts` — ✅ GREEN: 6/6 passed after implementation.
+- `bun run test amplify/backend.test.ts amplify/functions/chat-streaming/handler.test.ts amplify/functions/chat-streaming/runtime-adapter.test.ts` — ✅ TRIANGULATE/REFACTOR: 16/16 passed.
+- `bunx tsc --noEmit` — ✅ passed.
+- `bun run check` — ✅ passed, 141 files checked.
+- `bun run verify:amplify-config` — ✅ passed.
+- `bun run test` — ✅ passed, 31 files / 133 tests.
+
+### Deviations From Design
+
+- Restores the original design intent: Function URL/CDK CORS is the service-level CORS source for browser preflight and response decoration. Handler-owned origin allowlist remains as a defense-in-depth POST execution guard, but the handler no longer emits ACAO on approved POST responses to avoid duplicate browser-visible CORS headers.
+
+### Remaining Tasks
+
+- Deploy this third CORS hotfix to production.
+- Retry preflight curl and confirm `OPTIONS` includes `access-control-allow-origin`, `access-control-allow-methods`, and `access-control-allow-headers`.
+- Retry invalid-token POST curl and confirm there is exactly one `access-control-allow-origin`.
+- If CORS passes in browser, continue validating progressive chunk delivery.
+
+### Workload / PR Boundary
+
+- Boundary: minimal CORS ownership correction only; no frontend, auth, storage, chat semantics, or model behavior changes.

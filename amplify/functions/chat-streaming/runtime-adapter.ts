@@ -116,23 +116,6 @@ export const corsResponseHeaders = (origin: string): Record<string, string> => (
   vary: "origin",
 });
 
-export const withCorsResponseHeaders = (response: Response, origin?: string): Response => {
-  if (!origin) {
-    return response;
-  }
-
-  const headers = new Headers(response.headers);
-  for (const [name, value] of Object.entries(corsResponseHeaders(origin))) {
-    headers.set(name, value);
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-};
-
 export const buildCorsPreflightResponse = ({
   origin,
   allowedOrigins,

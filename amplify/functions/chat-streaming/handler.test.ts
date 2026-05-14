@@ -128,13 +128,8 @@ describe("chat streaming Lambda handler composition", () => {
       }),
     );
     expect(Buffer.concat(stream.chunks).toString()).toBe("chat-stream");
-    expect(stream.metadata?.headers).toEqual(
-      expect.objectContaining({
-        "access-control-allow-origin": "https://main.d22icjbzj7x471.amplifyapp.com",
-        "access-control-expose-headers": "x-error-code, x-request-id",
-        vary: "origin",
-      }),
-    );
+    expect(stream.metadata?.headers?.["access-control-allow-origin"]).toBeUndefined();
+    expect(stream.metadata?.headers?.vary).toBeUndefined();
   });
 
   it("rejects unapproved cross-origin POST requests before chat execution", async () => {
@@ -154,7 +149,7 @@ describe("chat streaming Lambda handler composition", () => {
     expect(Buffer.concat(stream.chunks).toString()).toContain("Origin not allowed");
   });
 
-  it("returns auth errors before chat execution with CORS headers for approved origins", async () => {
+  it("returns auth errors before chat execution without handler-owned CORS headers", async () => {
     const { AuthRequiredError } = await import("@/lib/auth/errors");
     createLambdaOwnerResolverMock.mockReturnValueOnce(
       vi.fn(async () => {
@@ -173,9 +168,7 @@ describe("chat streaming Lambda handler composition", () => {
     const response = Buffer.concat(stream.chunks).toString();
     expect(response).toContain("Sign in to continue");
     expect(response).not.toContain("Lambda chat is not configured");
-    expect(stream.metadata?.headers?.["access-control-allow-origin"]).toBe(
-      "https://main.d22icjbzj7x471.amplifyapp.com",
-    );
+    expect(stream.metadata?.headers?.["access-control-allow-origin"]).toBeUndefined();
   });
 
   it("returns configuration errors before chat execution", async () => {

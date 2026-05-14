@@ -17,7 +17,6 @@ import {
   type LambdaResponseStream,
   pipeResponseToStream,
   rejectUnsupportedMethod,
-  withCorsResponseHeaders,
 } from "./runtime-adapter";
 
 type StreamifiedHandler = (
@@ -109,13 +108,9 @@ export const handleChatStreamingRequest = async (
   }
 
   if (method !== "POST") {
-    await pipeResponseToStream(
-      withCorsResponseHeaders(rejectUnsupportedMethod(method), origin),
-      responseStream,
-      {
-        decorateResponseStream,
-      },
-    );
+    await pipeResponseToStream(rejectUnsupportedMethod(method), responseStream, {
+      decorateResponseStream,
+    });
     return;
   }
 
@@ -131,16 +126,13 @@ export const handleChatStreamingRequest = async (
     request = createLambdaRequest(event);
   } catch (error) {
     await pipeResponseToStream(
-      withCorsResponseHeaders(
-        new Response(error instanceof Error ? error.message : "Invalid request.", {
-          status: 400,
-          headers: {
-            "content-type": "text/plain; charset=utf-8",
-            "x-error-code": "REQUEST_INVALID",
-          },
-        }),
-        origin,
-      ),
+      new Response(error instanceof Error ? error.message : "Invalid request.", {
+        status: 400,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "x-error-code": "REQUEST_INVALID",
+        },
+      }),
       responseStream,
       { decorateResponseStream },
     );
@@ -169,7 +161,7 @@ export const handleChatStreamingRequest = async (
     const response = await handler({ request });
     logger.info("handler_result", { status: response.status });
 
-    await pipeResponseToStream(withCorsResponseHeaders(response, origin), responseStream, {
+    await pipeResponseToStream(response, responseStream, {
       decorateResponseStream,
     });
     logger.info("stream_event", { completed: true });
@@ -178,10 +170,7 @@ export const handleChatStreamingRequest = async (
       errorCategory: error instanceof Error ? error.name : "unknown",
     });
     await pipeResponseToStream(
-      withCorsResponseHeaders(
-        isAuthRequiredError(error) ? authRequiredResponse() : configurationErrorResponse(error),
-        origin,
-      ),
+      isAuthRequiredError(error) ? authRequiredResponse() : configurationErrorResponse(error),
       responseStream,
       { decorateResponseStream },
     );
