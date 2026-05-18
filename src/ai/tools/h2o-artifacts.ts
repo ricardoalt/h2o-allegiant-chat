@@ -183,6 +183,25 @@ const pdfDownloadUrl = (ctx: ArtifactRequestContext, kind: ArtifactKind): string
   return ctx.baseUrl ? new URL(path, ctx.baseUrl).toString() : path;
 };
 
+type ArtifactLogEvent = Record<string, unknown> & {
+  event: string;
+  kind: ArtifactKind;
+  threadId: string;
+};
+
+const logArtifactInfo = (event: string, details: ArtifactLogEvent): void => {
+  console.log(`[h2o-artifacts] ${event}`, details);
+};
+
+const logArtifactError = (event: string, details: ArtifactLogEvent): void => {
+  console.error(`[h2o-artifacts] ${event}`, details);
+};
+
+const errorDetails = (error: unknown) => ({
+  errorClass: error instanceof Error ? error.name : typeof error,
+  errorMessage: "redacted",
+});
+
 const persistArtifact = async <
   TPayload extends { title?: string; customer?: { name?: string; slug?: string } },
 >(
@@ -197,26 +216,91 @@ const persistArtifact = async <
   // (missing field, invalid value, library crash) surfaces as a tool-error
   // the model can retry against. The download route never has to call into
   // @react-pdf again — it just streams these bytes from S3.
+  const renderStartedAt = Date.now();
+  logArtifactInfo("artifact_render_started", {
+    event: "artifact_render_started",
+    kind,
+    threadId: ctx.threadId,
+  });
   const pdfBytes = await renderArtifactPdf(kind, payload);
+  logArtifactInfo("artifact_render_finished", {
+    event: "artifact_render_finished",
+    kind,
+    threadId: ctx.threadId,
+    durationMs: Date.now() - renderStartedAt,
+    byteLength: pdfBytes.length,
+  });
+
+  const storageStartedAt = Date.now();
+  logArtifactInfo("artifact_pdf_storage_started", {
+    event: "artifact_pdf_storage_started",
+    kind,
+    threadId: ctx.threadId,
+  });
   await ctx.pdfStorage.put({
     bytes: pdfBytes,
     kind,
     threadId: ctx.threadId,
     userId: ctx.owner.userId,
   });
+  logArtifactInfo("artifact_pdf_storage_finished", {
+    event: "artifact_pdf_storage_finished",
+    kind,
+    threadId: ctx.threadId,
+    durationMs: Date.now() - storageStartedAt,
+    byteLength: pdfBytes.length,
+  });
 
-  const artifact = await ctx.artifactStore.putArtifact(
-    {
-      customerSlug,
+  // If the DynamoDB write rejects after S3 succeeded, delete the orphan
+  // PDF so a never-retried kind doesn't accumulate dead bytes in S3.
+  // The S3 key is deterministic per (user, thread, kind), so a successful
+  // retry would overwrite anyway — this only matters when no retry happens.
+  let artifact: Awaited<ReturnType<typeof ctx.artifactStore.putArtifact>>;
+  try {
+    const persistStartedAt = Date.now();
+    logArtifactInfo("artifact_db_persist_started", {
+      event: "artifact_db_persist_started",
       kind,
-      payload,
-      payloadVersion: 1,
-      status: "ready",
       threadId: ctx.threadId,
-      title,
-    },
-    ctx.owner,
-  );
+    });
+    artifact = await ctx.artifactStore.putArtifact(
+      {
+        customerSlug,
+        kind,
+        payload,
+        payloadVersion: 1,
+        status: "ready",
+        threadId: ctx.threadId,
+        title,
+      },
+      ctx.owner,
+    );
+    logArtifactInfo("artifact_db_persist_finished", {
+      event: "artifact_db_persist_finished",
+      kind,
+      threadId: ctx.threadId,
+      artifactId: artifact.id,
+      durationMs: Date.now() - persistStartedAt,
+    });
+  } catch (error) {
+    logArtifactError("artifact_db_persist_failed", {
+      event: "artifact_db_persist_failed",
+      kind,
+      threadId: ctx.threadId,
+      ...errorDetails(error),
+    });
+    await ctx.pdfStorage
+      .delete({ kind, threadId: ctx.threadId, userId: ctx.owner.userId })
+      .catch((cleanupError) => {
+        console.error("[h2o-artifacts] s3-cleanup-failed", {
+          event: "artifact_orphan_cleanup_failed",
+          kind,
+          threadId: ctx.threadId,
+          ...errorDetails(cleanupError),
+        });
+      });
+    throw error;
+  }
 
   const formats: ArtifactFormat[] = [
     {
@@ -237,32 +321,81 @@ const persistArtifact = async <
   };
 };
 
+const runArtifactTool = async <
+  TPayload extends { title?: string; customer?: { name?: string; slug?: string } },
+>({
+  ctx,
+  input,
+  kind,
+  toolCallId,
+}: {
+  ctx: ArtifactRequestContext;
+  input: TPayload;
+  kind: ArtifactKind;
+  toolCallId?: string;
+}): Promise<ArtifactToolResult> => {
+  const startedAt = Date.now();
+  logArtifactInfo("artifact_tool_started", {
+    event: "artifact_tool_started",
+    kind,
+    threadId: ctx.threadId,
+    toolCallId,
+  });
+
+  try {
+    const result = await persistArtifact(ctx, kind, input);
+    logArtifactInfo("artifact_tool_finished", {
+      event: "artifact_tool_finished",
+      kind,
+      threadId: ctx.threadId,
+      toolCallId,
+      artifactId: result.artifactId,
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (error) {
+    logArtifactError("artifact_tool_failed", {
+      event: "artifact_tool_failed",
+      kind,
+      threadId: ctx.threadId,
+      toolCallId,
+      durationMs: Date.now() - startedAt,
+      ...errorDetails(error),
+    });
+    throw error;
+  }
+};
+
 export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
   generateFieldBrief: tool({
     description:
-      "Generate and persist the Field Brief PDF for the current opportunity. Returns a real PDF download URL.",
+      "Render and persist the H2O Field Brief PDF — the 1-2 page strategic decision aid (cover, win-win argument, fully-priced cost-of-alternative table, kill risks, do-this-next actions). Returns the PDF download URL.",
     inputSchema: fieldBriefInputSchema,
-    execute: async (input) => persistArtifact(ctx, "field-brief", input),
+    execute: async (input, { toolCallId }) =>
+      runArtifactTool({ ctx, kind: "field-brief", input, toolCallId }),
   }),
 
   generatePlaybook: tool({
     description:
-      "Generate and persist the Conversation Playbook PDF for the current opportunity. Returns a real PDF download URL.",
+      "Render and persist the H2O Conversation Playbook PDF — themed question structure (1-2 pages) the field agent uses in the next customer conversation. Returns the PDF download URL.",
     inputSchema: playbookInputSchema,
-    execute: async (input) => persistArtifact(ctx, "playbook", input),
+    execute: async (input, { toolCallId }) =>
+      runArtifactTool({ ctx, kind: "playbook", input, toolCallId }),
   }),
 
   generateAnalyticalRead: tool({
     description:
-      "Generate and persist the Analytical Read PDF for the current opportunity. Returns a real PDF download URL.",
+      "Render and persist the H2O Analytical Read PDF — 3-6 page evidence-tagged write-up sent upward to leadership. Returns the PDF download URL.",
     inputSchema: analyticalReadInputSchema,
-    execute: async (input) => persistArtifact(ctx, "analytical-read", input),
+    execute: async (input, { toolCallId }) =>
+      runArtifactTool({ ctx, kind: "analytical-read", input, toolCallId }),
   }),
 
   generateProposalShell: tool({
     description:
-      "Generate and persist the Proposal Shell PDF for the current opportunity. Returns a real PDF download URL.",
+      "Render and persist the H2O Proposal Shell PDF — scoping-language seed (1-5 pages, depth scales with deal stage: one paragraph at Lead, full draft at Propose). Returns the PDF download URL.",
     inputSchema: proposalShellInputSchema,
-    execute: async (input) => persistArtifact(ctx, "proposal-shell", input),
+    execute: async (input, { toolCallId }) =>
+      runArtifactTool({ ctx, kind: "proposal-shell", input, toolCallId }),
   }),
 });
