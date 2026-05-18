@@ -4,6 +4,10 @@
 
 completed — minimal orchestration experiment applied
 
+## Slice 2 Progress Observability Update
+
+Status: completed — semantic progress/observability slice applied without changing Lambda timeout or prompt/tool orchestration.
+
 ## Completed Tasks
 
 - [x] Read OpenSpec config, explore artifacts, AI SDK skill, prompt-engineering skill, existing agent/prompt/skill code, and tests.
@@ -53,6 +57,39 @@ completed — minimal orchestration experiment applied
 - Did not add structured tool execution retry in `h2o-artifacts.ts`; current scope implemented AI SDK schema/input repair and prompt-level retry policy. Tool-level retryable/non-retryable result contracts should be a follow-up if runtime failures still need model-visible classification.
 - Did not add a server-side intent gate; this apply intentionally keeps the experiment minimal and prompt/tool-loop native.
 
+## Slice 2 Completed Tasks
+
+- [x] Added typed `data-agent-status` UI data part with semantic phase, label, optional detail, and elapsed milliseconds.
+- [x] Streamed transient semantic progress chunks before agent execution, periodically while the agent stream is pending, and after `requestAgent.stream` returns.
+- [x] Added structured server logs for `agent_stream_started`, `agent_stream_ready`, `agent_stream_finished`, and `agent_stream_error` without customer payloads.
+- [x] Updated chat UI to consume `data-agent-status` via `onData` and render a compact progress line while submitted/streaming.
+- [x] Preserved the user's new `ArtifactToolCard` rendering path and did not restore raw tool parameter cards.
+- [x] Updated generic loading shimmer behavior so visible tool activity suppresses the generic “Thinking…” shimmer.
+
+## Slice 2 Files Changed
+
+- `src/types/ui-message.ts`
+- `src/lib/chat-handler.ts`
+- `src/lib/chat-handler.test.ts`
+- `src/lib/chat-utils.ts`
+- `src/components/chat-interface.tsx`
+- `src/components/chat-interface.test.tsx`
+
+## Slice 2 Test Commands Run
+
+- `bun run test src/lib/chat-handler.test.ts src/components/chat-interface.test.tsx` — safety net before production edits was not clean because RED tests were intentionally introduced first in this delegated slice; after RED, 2 expected failures covered missing agent-status chunks and shimmer suppression.
+- `bun run test src/lib/chat-handler.test.ts src/components/chat-interface.test.tsx` — GREEN: 34/34 passing after semantic status streaming and shimmer implementation.
+- `bun run test src/lib/chat-handler.test.ts src/components/chat-interface.test.tsx` — TRIANGULATE/GREEN: 35/35 passing after heartbeat test.
+- `bun run test src/lib/chat-handler.test.ts src/components/chat-interface.test.tsx && bunx tsc --noEmit` — final verification: 36/36 focused tests passing; typecheck passing.
+
+## Slice 2 TDD Cycle Evidence
+
+| Task                                         | Test File                                                            | Layer     | Safety Net                                                               | RED                                                                      | GREEN                                             | TRIANGULATE                                                                            | REFACTOR                                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Stream semantic agent status                 | `src/lib/chat-handler.test.ts`                                       | Unit      | Existing focused tests were read; RED introduced before production edits | ✅ Expected failure: no `data-agent-status` chunks                       | ✅ Start/streaming status chunks passed           | ✅ Added pending-stream heartbeat case with fake timers                                | ✅ Extracted `agentStatusChunk`, heartbeat interval constant, and `writeAgentStatus` helper |
+| Render progress and suppress generic shimmer | `src/components/chat-interface.test.tsx`                             | Unit/SSR  | Existing component/helper tests read                                     | ✅ Expected failure: artifact tool activity still showed generic shimmer | ✅ Shimmer suppression passed after helper update | ✅ Added `AgentStatusProgress` render case with elapsed seconds and no raw tool params | ✅ Kept artifact card renderer intact and progress line separate                            |
+| Type `data-agent-status`                     | `src/components/chat-interface.test.tsx` / `src/types/ui-message.ts` | Type/unit | N/A structural type update                                               | ✅ Tests referenced `AgentStatusData` before type existed                | ✅ Typecheck passed after data part type addition | ✅ Agent status render used concrete `AgentStatusData` fixture                         | ➖ No extra refactor needed                                                                 |
+
 ## Remaining Tasks
 
 - Add broader orchestration evals or integration tests for real model behavior: direct Q&A no artifacts, explicit single artifact, full package one-by-one, tool failure recovery.
@@ -63,3 +100,68 @@ completed — minimal orchestration experiment applied
 
 - Single reviewable slice under the 400-line review budget for application code/tests.
 - Recommended PR boundary: minimal AI SDK-native orchestration experiment only. Do not combine with server-side intent gate or workflow engine changes.
+
+## Post Progress Manual-Test + Analytical Read Mitigation Slice
+
+Status: completed — P0 UI cleanup, artifact preliminary progress, and Analytical Read timeout/abort mitigation applied.
+
+## Completed Tasks
+
+- [x] Suppressed generic `data-agent-status` progress when the latest assistant message already has visible text/reasoning or visible tool activity.
+- [x] Fixed submit/stop semantics so `PromptInputSubmit` shows stop affordance only when a real `onStop` handler is wired.
+- [x] Wired `useChat().stop` through `ChatInterface` → `ChatPromptComposer` → `PromptInputSubmit`.
+- [x] Converted H2O artifact tools to async-generator executions that yield preliminary progress phases before final ready output.
+- [x] Expanded artifact UI output typing to support progress statuses (`rendering`, `storing`, `persisting`) plus final `ready` result.
+- [x] Updated `ArtifactToolCard` to render preliminary phase messages and preserve final View/Download and Failed UI.
+- [x] Improved abort-sanitized incomplete tool error text to distinguish response timeout/interruption before execution completion.
+- [x] Increased chat `totalMs` from `240_000` to `285_000`, still below Lambda's 300s hard cap, based on AWS evidence that Analytical Read was interrupted at the previous app cap before `artifact_tool_started`.
+
+## Files Changed
+
+- `src/types/ui-message.ts`
+- `src/lib/chat-utils.ts`
+- `src/lib/chat-runtime.ts`
+- `src/lib/chat-runtime.test.ts`
+- `src/lib/chat-handler.ts`
+- `src/lib/chat-handler.test.ts`
+- `src/ai/tools/h2o-artifacts.ts`
+- `src/ai/tools/h2o-artifacts.test.ts`
+- `src/components/ai-elements/artifact-tool-card.tsx`
+- `src/components/ai-elements/prompt-input.tsx`
+- `src/components/chat-interface.tsx`
+- `src/components/chat-interface.test.tsx`
+- `src/components/chat-prompt-composer.tsx`
+
+## Test Commands Run
+
+- `bun run test src/components/chat-interface.test.tsx src/lib/chat-handler.test.ts src/ai/tools/h2o-artifacts.test.ts src/lib/chat-runtime.test.ts` — safety net: 58/58 passing before this slice's production edits.
+- `bun run test src/components/chat-interface.test.tsx src/ai/tools/h2o-artifacts.test.ts src/lib/chat-runtime.test.ts` — RED: 7 expected failures for missing `shouldShowAgentStatusProgress`, stop semantics, preliminary artifact outputs, and improved abort text.
+- `bun run test src/components/chat-interface.test.tsx src/lib/chat-handler.test.ts src/ai/tools/h2o-artifacts.test.ts src/lib/chat-runtime.test.ts` — GREEN: 64/64 passing after implementation.
+- `bun run test src/components/chat-interface.test.tsx src/lib/chat-handler.test.ts src/ai/tools/h2o-artifacts.test.ts src/lib/chat-runtime.test.ts && bunx tsc --noEmit` — verification: tests passed; first typecheck surfaced two narrowing issues, fixed immediately.
+- `bunx tsc --noEmit` — final typecheck passed.
+- `bun run test src/components/chat-interface.test.tsx src/lib/chat-handler.test.ts src/ai/tools/h2o-artifacts.test.ts src/lib/chat-runtime.test.ts` — final focused verification: 66/66 passing.
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Suppress generic progress while visible text/tool activity exists | `src/components/chat-interface.test.tsx` | Unit | ✅ 58/58 | ✅ Missing `shouldShowAgentStatusProgress` failed | ✅ Helper wired and UI uses it | ✅ Added artifact-tool activity case plus silent submitted case | ✅ Extracted `hasVisibleAssistantProgress` in `chat-utils` |
+| Fix submit/stop icon semantics | `src/components/chat-interface.test.tsx` | Unit/SSR | ✅ 58/58 | ✅ Streaming without `onStop` still rendered Stop | ✅ `PromptInputSubmit` only stops when `onStop` exists | ✅ Added wired-stop case and passed `useChat().stop` through composer | ✅ Reused `canStop` boolean for aria/type/icon/click semantics |
+| Stream preliminary artifact progress | `src/ai/tools/h2o-artifacts.test.ts`, `src/components/chat-interface.test.tsx` | Unit | ✅ 58/58 | ✅ Artifact tools emitted only final `ready` result | ✅ Async-generator tools yielded `rendering`/`storing`/`persisting`/`ready` | ✅ Added Analytical Read progress case and card render progress case | ✅ Added output union types and centralized final-result collection helper in tests |
+| Improve abort/Analytical Read mitigation | `src/lib/chat-runtime.test.ts`, `src/lib/chat-handler.test.ts` | Unit | ✅ 58/58 | ✅ Sanitized abort text and timeout budget expectation failed | ✅ Abort text distinguishes timeout/interruption and `totalMs` set to 285s | ✅ Dynamic-tool incomplete path also asserts new text | ✅ Extracted abort text constant and updated timeout comments with AWS rationale |
+
+## Deviations / Notes
+
+- Did not add raw UI chunk logging for `tool-input-error`; this would be a broader instrumentation slice. Current mitigation focuses on clearer abort diagnostics, preliminary tool progress, and a modest timeout budget increase.
+- Did not harden Analytical Read schema because renderer/schema tests pass and AWS evidence showed no `artifact_tool_started kind=analytical-read`, pointing to pre-execute timeout/abort rather than renderer failure.
+- Preliminary outputs improve progress once a tool execute starts; they do not solve the long model input-generation gap before first tool start.
+
+## Remaining Tasks
+
+- Redeploy/restart sandbox and manually verify that artifact cards show `Rendering PDF…`, `Storing PDF…`, and `Saving artifact metadata…` during tool execution.
+- Inspect CloudWatch for whether Analytical Read now reaches `artifact_tool_started` with the 285s budget.
+- If Analytical Read still fails before execute, add raw UI chunk diagnostics for `tool-input-error`/`abort` and consider reducing model-generated Analytical Read payload complexity.
+
+## Workload / PR Boundary
+
+- This slice exceeds the original 400-line review comfort mainly due accumulated uncommitted Slice 2 UI changes and focused tests. Recommended review boundary: post-progress manual-test fixes + Analytical Read timeout/abort mitigation only; do not combine with prompt/orchestration changes.
