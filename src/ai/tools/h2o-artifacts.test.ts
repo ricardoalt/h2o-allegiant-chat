@@ -4,6 +4,7 @@ import type { ArtifactStore } from "@/lib/artifacts/artifact-store";
 import { InMemoryArtifactPdfStorage } from "@/lib/artifacts/pdf-storage";
 import type { OwnerContext } from "@/lib/auth/owner-context";
 import {
+  type ArtifactToolOutput,
   type ArtifactToolResult,
   analyticalReadInputSchema,
   createH2oArtifactTools,
@@ -97,13 +98,26 @@ const createStore = (): ArtifactStore => ({
   })),
 });
 
-const executeTool = async (tool: unknown, input: unknown): Promise<ArtifactToolResult> => {
-  const execute = (tool as { execute: ToolExecuteFunction<unknown, ArtifactToolResult> }).execute;
+const collectToolOutputs = async (tool: unknown, input: unknown): Promise<ArtifactToolOutput[]> => {
+  const execute = (tool as { execute: ToolExecuteFunction<unknown, ArtifactToolOutput> }).execute;
   const result: unknown = await execute(input, { toolCallId: "tool-call-1", messages: [] });
   if (Symbol.asyncIterator in Object(result)) {
-    throw new TypeError("artifact tool returned an async iterable result");
+    const outputs: ArtifactToolOutput[] = [];
+    for await (const output of result as AsyncIterable<ArtifactToolOutput>) {
+      outputs.push(output);
+    }
+    return outputs;
   }
-  return result as ArtifactToolResult;
+  return [result as ArtifactToolOutput];
+};
+
+const executeTool = async (tool: unknown, input: unknown): Promise<ArtifactToolResult> => {
+  const outputs = await collectToolOutputs(tool, input);
+  const result = outputs.at(-1);
+  if (!result || result.status !== "ready") {
+    throw new TypeError("artifact tool did not produce a final ready result");
+  }
+  return result;
 };
 
 describe("H2O artifact tool schemas", () => {
@@ -171,6 +185,31 @@ describe("createH2oArtifactTools returns 4 atomic tools", () => {
 });
 
 describe("generateFieldBrief", () => {
+  it("streams preliminary progress phases before the final field brief result", async () => {
+    const tools = createH2oArtifactTools({
+      artifactStore: createStore(),
+      pdfStorage: new InMemoryArtifactPdfStorage(),
+      owner,
+      threadId: "thread-1",
+    });
+
+    const outputs = await collectToolOutputs(tools.generateFieldBrief, fieldBriefInput);
+
+    expect(outputs.map((output) => output.status)).toEqual([
+      "rendering",
+      "storing",
+      "persisting",
+      "ready",
+    ]);
+    expect(outputs[0]).toMatchObject({
+      artifactType: "field-brief",
+      message: "Rendering PDF…",
+      title: "Prairie Water Field Brief",
+    });
+    expect(outputs[1]).toMatchObject({ message: "Storing PDF…" });
+    expect(outputs[2]).toMatchObject({ message: "Saving artifact metadata…" });
+  }, 30_000);
+
   it("persists the field brief PDF and returns the correct output shape", async () => {
     const artifactStore = createStore();
     const pdfStorage = new InMemoryArtifactPdfStorage();
@@ -220,6 +259,31 @@ describe("generatePlaybook", () => {
 });
 
 describe("generateAnalyticalRead", () => {
+  it("streams analytical-read progress before the final ready result", async () => {
+    const tools = createH2oArtifactTools({
+      artifactStore: createStore(),
+      pdfStorage: new InMemoryArtifactPdfStorage(),
+      owner,
+      threadId: "thread-1",
+    });
+
+    const outputs = await collectToolOutputs(tools.generateAnalyticalRead, analyticalReadInput);
+
+    expect(outputs.map((output) => output.status)).toEqual([
+      "rendering",
+      "storing",
+      "persisting",
+      "ready",
+    ]);
+    expect(outputs[0]).toMatchObject({
+      artifactType: "analytical-read",
+      title: "Analytical Read",
+      message: "Rendering PDF…",
+    });
+    const final = outputs.at(-1);
+    expect(final).toMatchObject({ artifactType: "analytical-read", status: "ready" });
+  }, 30_000);
+
   it("persists the analytical read PDF and returns the correct output shape", async () => {
     const artifactStore = createStore();
     const pdfStorage = new InMemoryArtifactPdfStorage();

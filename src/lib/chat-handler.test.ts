@@ -143,6 +143,262 @@ describe("api/chat handler", () => {
     streamWrites.length = 0;
   });
 
+  it("streams semantic agent-status progress before and after the agent stream starts", async () => {
+    const saveMessage = vi.fn<ChatStore["saveMessage"]>().mockResolvedValue(undefined);
+    const store = {
+      saveMessage,
+      getThreadById: vi.fn<ChatStore["getThreadById"]>().mockResolvedValue({
+        id: "thread-1",
+        resourceId: "user-id",
+        title: "Existing",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      createThread: vi.fn<ChatStore["createThread"]>(),
+      updateThreadTitle: vi.fn<ChatStore["updateThreadTitle"]>().mockResolvedValue(undefined),
+      getThreadMessages: vi.fn<ChatStore["getThreadMessages"]>().mockResolvedValue([]),
+      listThreads: vi.fn<ChatStore["listThreads"]>().mockResolvedValue([]),
+      deleteThread: vi.fn<ChatStore["deleteThread"]>().mockResolvedValue(undefined),
+      replaceAssistantMessageAfter: vi
+        .fn<ChatStore["replaceAssistantMessageAfter"]>()
+        .mockResolvedValue(undefined),
+      cloneThread: vi.fn<ChatStore["cloneThread"]>(),
+    } satisfies ChatStore;
+    const blobStore = {
+      put: vi.fn<BlobStore["put"]>(),
+      get: vi.fn<BlobStore["get"]>().mockResolvedValue(Buffer.from("test", "utf8")),
+      delete: vi.fn<BlobStore["delete"]>().mockResolvedValue(undefined),
+    } satisfies BlobStore;
+    const mockAgent = createMockAgent("done");
+    const handler = createChatPostHandler({
+      chatStore: store,
+      blobStore,
+      agent: mockAgent,
+      generateText: vi.fn(),
+      getOwner: getTestOwner,
+    });
+
+    const response = await handler({
+      request: buildRequest({
+        threadId: "thread-1",
+        modelId: "claude-sonnet-4-6",
+        messages: [
+          {
+            id: "u-1",
+            role: "user",
+            parts: [{ type: "text", text: "build a brief" }],
+          } satisfies TestMessage,
+        ],
+      }),
+    });
+
+    await response.text();
+
+    expect(streamWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "data-agent-status",
+          data: expect.objectContaining({
+            phase: "preparing-analysis",
+            label: "Preparing analysis…",
+          }),
+        }),
+        expect.objectContaining({
+          type: "data-agent-status",
+          data: expect.objectContaining({
+            phase: "streaming-results",
+            label: "Streaming results…",
+          }),
+        }),
+      ]),
+    );
+    expect(mockAgent.stream).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: expect.any(Array) }),
+    );
+  });
+
+  it("streams preparing-artifact agent-status with artifactKind via the createAgent onNextArtifact callback", async () => {
+    // The createAgent factory exposes an `onNextArtifact` callback that the
+    // agent invokes from prepareStep with the next artifact kind. The handler
+    // must wire this into a `data-agent-status` chunk so the UI can label the
+    // silent model-thinking window between artifact tool calls.
+    const store = {
+      saveMessage: vi.fn<ChatStore["saveMessage"]>().mockResolvedValue(undefined),
+      getThreadById: vi.fn<ChatStore["getThreadById"]>().mockResolvedValue({
+        id: "thread-1",
+        resourceId: "user-id",
+        title: "Existing",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      createThread: vi.fn<ChatStore["createThread"]>(),
+      updateThreadTitle: vi.fn<ChatStore["updateThreadTitle"]>().mockResolvedValue(undefined),
+      getThreadMessages: vi.fn<ChatStore["getThreadMessages"]>().mockResolvedValue([]),
+      listThreads: vi.fn<ChatStore["listThreads"]>().mockResolvedValue([]),
+      deleteThread: vi.fn<ChatStore["deleteThread"]>().mockResolvedValue(undefined),
+      replaceAssistantMessageAfter: vi
+        .fn<ChatStore["replaceAssistantMessageAfter"]>()
+        .mockResolvedValue(undefined),
+      cloneThread: vi.fn<ChatStore["cloneThread"]>(),
+    } satisfies ChatStore;
+    const blobStore = {
+      put: vi.fn<BlobStore["put"]>(),
+      get: vi.fn<BlobStore["get"]>().mockResolvedValue(Buffer.from("test", "utf8")),
+      delete: vi.fn<BlobStore["delete"]>().mockResolvedValue(undefined),
+    } satisfies BlobStore;
+
+    // Capture the onNextArtifact callback so the test can simulate the agent
+    // signaling the next artifact transition.
+    let capturedCallback: ((kind: string) => void) | undefined;
+    const mockAgent = createMockAgent("done");
+    const createAgent = vi.fn((input: { onNextArtifact?: (kind: string) => void }) => {
+      capturedCallback = input.onNextArtifact;
+      return mockAgent;
+    }) as unknown as NonNullable<Parameters<typeof createChatPostHandler>[0]["createAgent"]>;
+
+    const handler = createChatPostHandler({
+      chatStore: store,
+      blobStore,
+      createAgent,
+      generateText: vi.fn(),
+      getOwner: getTestOwner,
+    });
+
+    const response = await handler({
+      request: buildRequest({
+        threadId: "thread-1",
+        modelId: "claude-sonnet-4-6",
+        messages: [
+          {
+            id: "u-1",
+            role: "user",
+            parts: [{ type: "text", text: "build the four artifact package" }],
+          } satisfies TestMessage,
+        ],
+      }),
+    });
+
+    // The handler must have wired a callback into createAgent so the agent
+    // can announce upcoming artifact transitions.
+    expect(capturedCallback).toBeTypeOf("function");
+    capturedCallback?.("playbook");
+    capturedCallback?.("analytical-read");
+
+    await response.text();
+
+    expect(streamWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "data-agent-status",
+          data: expect.objectContaining({
+            phase: "preparing-artifact",
+            artifactKind: "playbook",
+            label: expect.stringContaining("Playbook"),
+          }),
+        }),
+        expect.objectContaining({
+          type: "data-agent-status",
+          data: expect.objectContaining({
+            phase: "preparing-artifact",
+            artifactKind: "analytical-read",
+            label: expect.stringContaining("Analytical Read"),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("streams periodic still-working agent-status heartbeats while the agent stream is pending", async () => {
+    vi.useFakeTimers();
+    let resolveStream: ((value: unknown) => void) | undefined;
+    const pendingResult = new Promise((resolve) => {
+      resolveStream = resolve;
+    });
+    const mockAgent = {
+      stream: vi.fn().mockReturnValue(pendingResult),
+    } as unknown as Agent;
+    const store = {
+      saveMessage: vi.fn<ChatStore["saveMessage"]>().mockResolvedValue(undefined),
+      getThreadById: vi.fn<ChatStore["getThreadById"]>().mockResolvedValue({
+        id: "thread-1",
+        resourceId: "user-id",
+        title: "Existing",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      createThread: vi.fn<ChatStore["createThread"]>(),
+      updateThreadTitle: vi.fn<ChatStore["updateThreadTitle"]>().mockResolvedValue(undefined),
+      getThreadMessages: vi.fn<ChatStore["getThreadMessages"]>().mockResolvedValue([]),
+      listThreads: vi.fn<ChatStore["listThreads"]>().mockResolvedValue([]),
+      deleteThread: vi.fn<ChatStore["deleteThread"]>().mockResolvedValue(undefined),
+      replaceAssistantMessageAfter: vi
+        .fn<ChatStore["replaceAssistantMessageAfter"]>()
+        .mockResolvedValue(undefined),
+      cloneThread: vi.fn<ChatStore["cloneThread"]>(),
+    } satisfies ChatStore;
+    const blobStore = {
+      put: vi.fn<BlobStore["put"]>(),
+      get: vi.fn<BlobStore["get"]>().mockResolvedValue(Buffer.from("test", "utf8")),
+      delete: vi.fn<BlobStore["delete"]>().mockResolvedValue(undefined),
+    } satisfies BlobStore;
+    const handler = createChatPostHandler({
+      chatStore: store,
+      blobStore,
+      agent: mockAgent,
+      generateText: vi.fn(),
+      getOwner: getTestOwner,
+    });
+
+    const response = await handler({
+      request: buildRequest({
+        threadId: "thread-1",
+        modelId: "claude-sonnet-4-6",
+        messages: [
+          {
+            id: "u-1",
+            role: "user",
+            parts: [{ type: "text", text: "build a brief" }],
+          } satisfies TestMessage,
+        ],
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(streamWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "data-agent-status",
+          data: expect.objectContaining({
+            phase: "still-working",
+            label: "Still working…",
+            elapsedMs: 3_000,
+          }),
+        }),
+      ]),
+    );
+
+    resolveStream?.({
+      toUIMessageStream: ({ onFinish: onUiFinish }: MockUIStreamOptions = {}) =>
+        new ReadableStream({
+          async start(controller) {
+            await onUiFinish?.({
+              responseMessage: {
+                id: "assistant-1",
+                role: "assistant",
+                parts: [{ type: "text", text: "done" }],
+              },
+              messages: [],
+              isContinuation: false,
+              isAborted: false,
+            });
+            controller.close();
+          },
+        }),
+    });
+    await response.text();
+    vi.useRealTimers();
+  });
+
   it("persiste mensaje de usuario y respuesta final de asistente", async () => {
     const saveMessage = vi.fn<ChatStore["saveMessage"]>().mockResolvedValue(undefined);
     const getThreadById = vi
@@ -228,7 +484,7 @@ describe("api/chat handler", () => {
             parts: [{ type: "text", text: "hola" }],
           }),
         ]),
-        timeout: { totalMs: 240_000, stepMs: 120_000 },
+        timeout: { totalMs: 570_000, stepMs: 180_000 },
       }),
     );
     // System prompt + cachePoint live in the agent's `instructions` slot

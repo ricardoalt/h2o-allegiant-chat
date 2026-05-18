@@ -7,7 +7,7 @@ import {
   validateUIMessages,
 } from "ai";
 import { nanoid } from "nanoid";
-import type { Agent } from "@/ai/agents/agent";
+import type { Agent, ArtifactKind } from "@/ai/agents/agent";
 import { createH2oArtifactTools } from "@/ai/tools/h2o-artifacts";
 import { MODELS } from "@/config/models";
 import type { ArtifactStore } from "@/lib/artifacts/artifact-store";
@@ -34,7 +34,7 @@ import {
 } from "@/lib/storage/attachment-metadata";
 import type { BlobStore } from "@/lib/storage/blob-store";
 import type { ChatStore } from "@/lib/storage/chat-store-types";
-import type { MyUIMessage } from "@/types/ui-message";
+import type { AgentStatusData, MyUIMessage } from "@/types/ui-message";
 
 type GenerateTextFn = typeof generateText;
 
@@ -46,6 +46,17 @@ type CreateAgentInput = {
     threadId: string;
   };
   tools?: ReturnType<typeof createH2oArtifactTools>;
+  // Fired by the agent's prepareStep when the next artifact kind is known.
+  // The handler maps it to a `data-agent-status` chunk so the UI labels the
+  // silent model-thinking window between artifact tool calls.
+  onNextArtifact?: (kind: ArtifactKind) => void;
+};
+
+const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
+  "field-brief": "Field Brief",
+  playbook: "Conversation Playbook",
+  "analytical-read": "Analytical Read",
+  "proposal-shell": "Proposal Shell",
 };
 
 type Dependencies = {
@@ -71,6 +82,18 @@ const sanitizeTitle = (title: string): string => {
 
   return next.slice(0, 80);
 };
+
+// Cadence tuned for visual liveness during long Bedrock model phases.
+// 10s felt frozen; 3s keeps the elapsed-time counter ticking without
+// flooding the SSE channel. Each heartbeat chunk is ~120 bytes.
+const AGENT_STATUS_HEARTBEAT_MS = 3_000;
+
+const agentStatusChunk = (data: AgentStatusData) => ({
+  type: "data-agent-status" as const,
+  id: "agent-status",
+  data,
+  transient: true,
+});
 
 const extractAssistantText = (message: MyUIMessage): string =>
   message.parts
@@ -350,16 +373,6 @@ export const createChatPostHandler = (deps: Dependencies) => {
             threadId: params.threadId,
           })
         : undefined;
-    const requestAgent = deps.createAgent
-      ? deps.createAgent({
-          artifactContext: { owner, threadId: params.threadId },
-          tools: artifactTools,
-        })
-      : deps.agent;
-
-    if (!requestAgent) {
-      throw new Error("Chat handler requires an agent or createAgent dependency.");
-    }
 
     const uiMessages = historyForModel.map(({ id: _id, ...rest }) => rest);
     // System prompt + cachePoint live in the agent's `instructions` slot
@@ -389,6 +402,48 @@ export const createChatPostHandler = (deps: Dependencies) => {
         // would otherwise leave the thread with a phantom user message and no
         // assistant reply.
         let assistantPersisted = false;
+        const requestStartedAt = Date.now();
+        const writeAgentStatus = (data: AgentStatusData) => {
+          writer.write(agentStatusChunk(data));
+        };
+        // Suppress duplicate preparing-artifact emissions: prepareStep can fire
+        // multiple times for the same upcoming artifact while the model is
+        // composing the tool input. The UI only needs the first transition
+        // announcement; subsequent heartbeats keep the cadence alive.
+        let lastPreparedArtifactKind: ArtifactKind | null = null;
+        const announceNextArtifact = (kind: ArtifactKind) => {
+          if (kind === lastPreparedArtifactKind) {
+            return;
+          }
+          lastPreparedArtifactKind = kind;
+          writeAgentStatus({
+            phase: "preparing-artifact",
+            artifactKind: kind,
+            label: `Preparing ${ARTIFACT_KIND_LABELS[kind]}…`,
+            detail: "The model is composing the next artifact.",
+            elapsedMs: Date.now() - requestStartedAt,
+          });
+        };
+
+        const requestAgent = deps.createAgent
+          ? deps.createAgent({
+              artifactContext: { owner, threadId: params.threadId },
+              tools: artifactTools,
+              onNextArtifact: announceNextArtifact,
+            })
+          : deps.agent;
+
+        if (!requestAgent) {
+          throw new Error("Chat handler requires an agent or createAgent dependency.");
+        }
+
+        let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+        const stopHeartbeat = () => {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = undefined;
+          }
+        };
 
         try {
           if (createdThread) {
@@ -405,14 +460,49 @@ export const createChatPostHandler = (deps: Dependencies) => {
             });
           }
 
+          writeAgentStatus({
+            phase: "preparing-analysis",
+            label: "Preparing analysis…",
+            detail: "Reading context and preparing the next step.",
+            elapsedMs: 0,
+          });
+          console.log("[chat] agent_stream_started", {
+            event: "agent_stream_started",
+            threadId: params.threadId,
+            elapsedMs: 0,
+          });
+          heartbeatTimer = setInterval(() => {
+            writeAgentStatus({
+              phase: "still-working",
+              label: "Still working…",
+              detail: "The agent is generating or waiting on tool work.",
+              elapsedMs: Date.now() - requestStartedAt,
+            });
+          }, AGENT_STATUS_HEARTBEAT_MS);
+
           const result = await requestAgent.stream({
             messages: modelMessages,
-            // Lambda Duration.minutes(5) = 300s hard cap. Keep totalMs below
-            // that cap so onFinish persistence/cleanup can complete on abort.
-            // Artifact generation is now sequentially guarded by prepareStep;
-            // stepMs gives each model/tool step (one artifact render + S3/DDB
-            // persist) its own budget instead of sharing only one long turn cap.
-            timeout: { totalMs: 240_000, stepMs: 120_000 },
+            // Lambda Duration.minutes(10) = 600s hard cap. CloudWatch evidence
+            // (stream b4988e58): Field Brief composition alone took 149s of
+            // model time; Playbook 53s; Analytical Read aborted mid-stream at
+            // 70s when the previous 285s cap fired. A 4-artifact package needs
+            // ~80s avg × 4 + cold start + persistence + closing model reply.
+            // 570s totalMs leaves 30s for onFinish persistence/cleanup under
+            // the 600s Lambda timeout. stepMs raised proportionally so a
+            // single artifact JSON pass cannot exhaust the per-step budget.
+            timeout: { totalMs: 570_000, stepMs: 180_000 },
+          });
+
+          console.log("[chat] agent_stream_ready", {
+            event: "agent_stream_ready",
+            threadId: params.threadId,
+            durationMs: Date.now() - requestStartedAt,
+          });
+          writeAgentStatus({
+            phase: "streaming-results",
+            label: "Streaming results…",
+            detail: "Rendering the latest agent updates.",
+            elapsedMs: Date.now() - requestStartedAt,
           });
 
           writer.merge(
@@ -450,6 +540,16 @@ export const createChatPostHandler = (deps: Dependencies) => {
                       : candidate.type;
                   })
                   .join(",");
+                stopHeartbeat();
+                console.log("[chat] agent_stream_finished", {
+                  event: "agent_stream_finished",
+                  isAborted,
+                  threadId: params.threadId,
+                  durationMs: Date.now() - requestStartedAt,
+                  messageId: persistedResponseMessage.id,
+                  partCount: persistedResponseMessage.parts.length,
+                  parts: toolPartSummary,
+                });
                 console.log("[chat] onFinish:before-save", {
                   isAborted,
                   messageId: persistedResponseMessage.id,
@@ -524,6 +624,20 @@ export const createChatPostHandler = (deps: Dependencies) => {
             }),
           );
         } catch (error) {
+          const durationMs = Date.now() - requestStartedAt;
+          stopHeartbeat();
+          writeAgentStatus({
+            phase: "error",
+            label: "Response interrupted.",
+            detail: "The agent could not complete this response.",
+            elapsedMs: durationMs,
+          });
+          console.error("[chat] agent_stream_error", {
+            event: "agent_stream_error",
+            threadId: params.threadId,
+            durationMs,
+            message: error instanceof Error ? error.message : String(error),
+          });
           console.error("[chat] agent:error", {
             message: error instanceof Error ? error.message : String(error),
           });

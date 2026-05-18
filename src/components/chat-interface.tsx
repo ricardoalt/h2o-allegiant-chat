@@ -6,18 +6,26 @@ import { cloneThread, type Thread } from "@app/actions/threads";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DefaultChatTransport,
-  isToolUIPart,
   type DynamicToolUIPart,
+  isToolUIPart,
   type PrepareSendMessagesRequest,
   type ToolUIPart,
 } from "ai";
 import { fetchAuthSession } from "aws-amplify/auth";
-import { DownloadIcon, FileTextIcon, GitBranchIcon, RefreshCcwIcon } from "lucide-react";
+import {
+  BarChart3Icon,
+  BookOpenIcon,
+  ClipboardListIcon,
+  FileTextIcon,
+  GitBranchIcon,
+  RefreshCcwIcon,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type * as React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArtifactToolCard } from "@/components/ai-elements/artifact-tool-card";
 import {
   Conversation,
   ConversationContent,
@@ -34,15 +42,18 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
-import { Tool, ToolContent, ToolHeader, ToolInput } from "@/components/ai-elements/tool";
 import { ChatPromptComposer } from "@/components/chat-prompt-composer";
 import { useDraftInput } from "@/hooks/use-draft-input";
 import {
   LONG_STREAM_RECONCILIATION_OPTIONS,
   reconcileThreadAfterStream,
 } from "@/lib/chat-reconciliation";
-import { canSubmitPromptMessage, shouldShowLoadingShimmer } from "@/lib/chat-utils";
-import type { ArtifactToolUIResult, MyUIMessage } from "@/types/ui-message";
+import {
+  canSubmitPromptMessage,
+  shouldShowAgentStatusProgress,
+  shouldShowLoadingShimmer,
+} from "@/lib/chat-utils";
+import type { AgentStatusData, MyUIMessage } from "@/types/ui-message";
 import { CopyButton } from "./copy-button";
 
 const EMPTY_STATE_SUGGESTIONS = [
@@ -51,14 +62,14 @@ const EMPTY_STATE_SUGGESTIONS = [
   "Draft a maintenance procedure",
 ] as const;
 
-const ARTIFACT_TOOL_TITLES = {
-  "tool-generateFieldBrief": "Field Brief",
-  "tool-generatePlaybook": "Conversation Playbook",
-  "tool-generateAnalyticalRead": "Analytical Read",
-  "tool-generateProposalShell": "Proposal Shell",
+const ARTIFACT_TOOL_CONFIGS = {
+  "tool-generateFieldBrief": { title: "Field Brief", Icon: FileTextIcon },
+  "tool-generatePlaybook": { title: "Conversation Playbook", Icon: BookOpenIcon },
+  "tool-generateAnalyticalRead": { title: "Analytical Read", Icon: BarChart3Icon },
+  "tool-generateProposalShell": { title: "Proposal Shell", Icon: ClipboardListIcon },
 } as const;
 
-type ArtifactToolType = keyof typeof ARTIFACT_TOOL_TITLES;
+type ArtifactToolType = keyof typeof ARTIFACT_TOOL_CONFIGS;
 
 type ArtifactToolPart = Extract<MyUIMessage["parts"][number], { type: ArtifactToolType }>;
 
@@ -77,7 +88,7 @@ const isArtifactToolPart = (part: unknown): part is ArtifactToolPart =>
   part !== null &&
   "type" in part &&
   typeof part.type === "string" &&
-  part.type in ARTIFACT_TOOL_TITLES;
+  part.type in ARTIFACT_TOOL_CONFIGS;
 
 const asToolPart = (part: unknown): AnyToolPart | null => {
   if (typeof part !== "object" || part === null || !("type" in part)) {
@@ -95,7 +106,7 @@ export const getToolRenderingMetadata = (part: unknown): ToolRenderingMetadata |
   if (isArtifactToolPart(part)) {
     return {
       kind: "artifact-tool",
-      title: ARTIFACT_TOOL_TITLES[part.type],
+      title: ARTIFACT_TOOL_CONFIGS[part.type].title,
       defaultOpen,
     };
   }
@@ -163,39 +174,6 @@ export const summarizeMessagesForTelemetry = (messages: MyUIMessage[]) => {
     hiddenPartCount,
   };
 };
-
-export function ArtifactDownloadCard({
-  title,
-  output,
-}: {
-  title: string;
-  output: ArtifactToolUIResult | null | undefined;
-}): React.JSX.Element {
-  const pdf = output?.formats?.[0];
-
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <FileTextIcon className="size-5 shrink-0 text-primary" />
-        <div className="min-w-0">
-          <p className="truncate font-medium text-sm">{output?.title ?? title}</p>
-          <p className="truncate text-muted-foreground text-xs">{pdf?.filename ?? "PDF ready"}</p>
-        </div>
-      </div>
-      {pdf?.downloadUrl ? (
-        <a
-          className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-primary text-xs hover:bg-primary/15"
-          href={pdf.downloadUrl}
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          <DownloadIcon className="size-3.5" />
-          Download PDF
-        </a>
-      ) : null}
-    </div>
-  );
-}
 
 type ChatSendRequestInput = Pick<
   Parameters<PrepareSendMessagesRequest<MyUIMessage>>[0],
@@ -277,6 +255,40 @@ function isConversationTitleData(data: unknown): data is { title: string } {
   return typeof data === "object" && data !== null && "title" in data;
 }
 
+function isAgentStatusData(data: unknown): data is AgentStatusData {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "phase" in data &&
+    "label" in data &&
+    typeof data.phase === "string" &&
+    typeof data.label === "string"
+  );
+}
+
+export function AgentStatusProgress({ status }: { status: AgentStatusData }): React.JSX.Element {
+  const elapsedSeconds =
+    typeof status.elapsedMs === "number" && status.elapsedMs >= 1000
+      ? Math.floor(status.elapsedMs / 1000)
+      : null;
+
+  return (
+    <div
+      className="not-prose rounded-md border bg-muted/40 px-3 py-2 text-muted-foreground text-sm"
+      data-phase={status.phase}
+      data-artifact-kind={status.artifactKind}
+    >
+      <Shimmer as="p">{status.label}</Shimmer>
+      {status.detail || elapsedSeconds !== null ? (
+        <p className="mt-1 text-xs">
+          {status.detail}
+          {elapsedSeconds !== null ? ` ${elapsedSeconds}s elapsed.` : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 type ReconciliationTrigger = "on_finish" | "error";
 
 export function ChatInterface({
@@ -290,6 +302,7 @@ export function ChatInterface({
   const queryClient = useQueryClient();
   const draft = useDraftInput();
   const messagesRef = useRef(initialMessages);
+  const [agentStatus, setAgentStatus] = useState<AgentStatusData | null>(null);
   const reconciliationRequestRef = useRef(0);
   const reconcileAfterStreamRef = useRef<(source: ReconciliationTrigger) => void>(() => undefined);
 
@@ -301,11 +314,12 @@ export function ChatInterface({
     },
   });
 
-  const { messages, setMessages, sendMessage, status, regenerate, error, clearError } =
+  const { messages, setMessages, sendMessage, status, regenerate, stop, error, clearError } =
     useChat<MyUIMessage>({
       id: threadId,
       messages: initialMessages,
       onFinish: ({ messages: finishedMessages, isAbort, isDisconnect, isError, finishReason }) => {
+        setAgentStatus(null);
         messagesRef.current = finishedMessages;
         console.info("[chat-ui] use_chat_finish", {
           event: "use_chat_finish",
@@ -319,6 +333,10 @@ export function ChatInterface({
         reconcileAfterStreamRef.current("on_finish");
       },
       onData: (dataPart) => {
+        if (dataPart.type === "data-agent-status" && isAgentStatusData(dataPart.data)) {
+          setAgentStatus(dataPart.data);
+          return;
+        }
         if (dataPart.type === "data-new-thread-created" && isNewThreadCreatedData(dataPart.data)) {
           const newThread = dataPart.data;
           window.history.replaceState(window.history.state, "", `/c/${newThread.threadId}`);
@@ -433,6 +451,7 @@ export function ChatInterface({
       }
 
       reconciliationRequestRef.current += 1;
+      setAgentStatus(null);
       clearError();
 
       await sendMessage(message, {
@@ -493,6 +512,7 @@ export function ChatInterface({
                   clearError();
                 }
               }}
+              onStop={stop}
               onSubmitMessage={handleSubmitMessage}
               placeholder="Ask anything about water"
               status={status}
@@ -590,35 +610,23 @@ export function ChatInterface({
                                 }
 
                                 if (isArtifactToolPart(part)) {
+                                  const config = ARTIFACT_TOOL_CONFIGS[part.type];
                                   return (
-                                    <Tool
+                                    <ArtifactToolCard
                                       key={toolRenderKey(message.id, i, toolMetadata.defaultOpen)}
-                                      defaultOpen={toolMetadata.defaultOpen}
-                                    >
-                                      <ToolHeader
-                                        state={part.state}
-                                        title={toolMetadata.title}
-                                        type={part.type}
-                                      />
-                                      <ToolContent>
-                                        {part.state === "output-available" ? (
-                                          <ArtifactDownloadCard
-                                            output={part.output}
-                                            title={toolMetadata.title}
-                                          />
-                                        ) : null}
-                                        {part.state !== "input-streaming" ? (
-                                          <ToolInput input={part.input} />
-                                        ) : null}
-                                        {part.state === "output-error" ? (
-                                          <p className="text-destructive text-sm">
-                                            {part.errorText ?? "Generation failed."}
-                                          </p>
-                                        ) : null}
-                                      </ToolContent>
-                                    </Tool>
+                                      Icon={config.Icon}
+                                      title={config.title}
+                                      state={part.state}
+                                      output={
+                                        part.state === "output-available" ? part.output : undefined
+                                      }
+                                      errorText={
+                                        part.state === "output-error" ? part.errorText : undefined
+                                      }
+                                    />
                                   );
                                 }
+                                return null;
                               }
                             }
                           })}
@@ -655,7 +663,11 @@ export function ChatInterface({
                   ),
                 )}
 
-                {shouldShowLoadingShimmer(status, messages) && (
+                {agentStatus && shouldShowAgentStatusProgress(status, messages, agentStatus) ? (
+                  <AgentStatusProgress status={agentStatus} />
+                ) : null}
+
+                {shouldShowLoadingShimmer(status, messages) && !agentStatus && (
                   <motion.div
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -688,6 +700,7 @@ export function ChatInterface({
                     clearError();
                   }
                 }}
+                onStop={stop}
                 onSubmitMessage={handleSubmitMessage}
                 placeholder="Say something..."
                 status={status}

@@ -33,6 +33,7 @@ type ChatPromptComposerProps = {
   className: string;
   errorMessage?: string | null;
   onInteract?: () => void;
+  onStop?: () => void;
   onSubmitMessage: (message: PromptInputMessage) => void;
   placeholder: string;
   status: ChatStatus;
@@ -113,7 +114,13 @@ function PdfInstructionHint(): React.JSX.Element | null {
   );
 }
 
-function PromptSubmitButton({ status }: { status: ChatStatus }): React.JSX.Element {
+function PromptSubmitButton({
+  onStop,
+  status,
+}: {
+  onStop?: () => void;
+  status: ChatStatus;
+}): React.JSX.Element {
   const attachments = usePromptInputAttachments();
   const { textInput } = usePromptInputController();
 
@@ -121,7 +128,7 @@ function PromptSubmitButton({ status }: { status: ChatStatus }): React.JSX.Eleme
 
   const requiresInstruction = hasPdfAttachment && textInput.value.trim().length === 0;
 
-  return <PromptInputSubmit disabled={requiresInstruction} status={status} />;
+  return <PromptInputSubmit disabled={requiresInstruction} onStop={onStop} status={status} />;
 }
 
 /**
@@ -148,6 +155,7 @@ export function ChatPromptComposer({
   className,
   errorMessage,
   onInteract,
+  onStop,
   onSubmitMessage,
   placeholder,
   status,
@@ -235,7 +243,7 @@ export function ChatPromptComposer({
             </PromptInputActionMenu>
           </PromptInputTools>
 
-          <PromptSubmitButton status={status} />
+          <PromptSubmitButton onStop={onStop} status={status} />
         </PromptInputFooter>
       </PromptInput>
     </PromptInputProvider>

@@ -75,7 +75,13 @@ const chatStreamingFunction = new NodejsFunction(chatStreamingStack, "ChatStream
   },
   memorySize: 1024,
   runtime: Runtime.NODEJS_22_X,
-  timeout: Duration.minutes(5),
+  // CloudWatch evidence: the model alone takes ~150s composing the Field Brief
+  // JSON input (6,991 output tokens), ~50s for Playbook, ~70s for Analytical
+  // Read. The 5-minute (300s) cap aborted the third artifact mid-composition.
+  // 10 minutes gives the sequential 4-artifact package realistic headroom
+  // (~80s avg per artifact + cold start + cleanup) while staying well under
+  // Lambda Function URL's 15-minute streaming response ceiling.
+  timeout: Duration.minutes(10),
 });
 
 chatStreamingFunction.addToRolePolicy(

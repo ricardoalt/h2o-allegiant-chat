@@ -110,7 +110,9 @@ describe("chat-runtime", () => {
         output?: unknown;
       };
       expect(part.state).toBe("output-error");
-      expect(part.errorText).toMatch(/aborted|interrupted/i);
+      expect(part.errorText).toBe(
+        "Response timed out before this tool finished. The artifact was interrupted before execution completed; ask the agent to retry.",
+      );
       expect("output" in part).toBe(false);
     }
   });
@@ -133,7 +135,9 @@ describe("chat-runtime", () => {
     const sanitized = sanitizeAbortedToolParts(partial);
     const part = sanitized.parts[0] as { state: string; errorText: string };
     expect(part.state).toBe("output-error");
-    expect(part.errorText).toMatch(/interrupted/i);
+    expect(part.errorText).toBe(
+      "Response timed out before this tool finished. The artifact was interrupted before execution completed; ask the agent to retry.",
+    );
   });
 
   it("strips approval field when downgrading approval-requested (shape incompatible with output-error)", () => {

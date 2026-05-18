@@ -139,6 +139,15 @@ type ArtifactFormat = {
   downloadUrl: string;
 };
 
+export type ArtifactToolProgressStatus = "rendering" | "storing" | "persisting";
+
+export type ArtifactToolProgress = {
+  artifactType: ArtifactKind;
+  title: string;
+  status: ArtifactToolProgressStatus;
+  message: string;
+};
+
 export type ArtifactToolResult = {
   artifactId: string;
   artifactType: ArtifactKind;
@@ -147,6 +156,8 @@ export type ArtifactToolResult = {
   createdAt: string;
   formats: ArtifactFormat[];
 };
+
+export type ArtifactToolOutput = ArtifactToolProgress | ArtifactToolResult;
 
 export type ArtifactRequestContext = {
   owner: OwnerContext;
@@ -202,13 +213,13 @@ const errorDetails = (error: unknown) => ({
   errorMessage: "redacted",
 });
 
-const persistArtifact = async <
+async function* persistArtifact<
   TPayload extends { title?: string; customer?: { name?: string; slug?: string } },
 >(
   ctx: ArtifactRequestContext,
   kind: ArtifactKind,
   payload: TPayload,
-): Promise<ArtifactToolResult> => {
+): AsyncGenerator<ArtifactToolOutput> {
   const customerSlug = slugFor(payload);
   const title = titleFor(kind, payload);
 
@@ -216,6 +227,7 @@ const persistArtifact = async <
   // (missing field, invalid value, library crash) surfaces as a tool-error
   // the model can retry against. The download route never has to call into
   // @react-pdf again — it just streams these bytes from S3.
+  yield { artifactType: kind, title, status: "rendering", message: "Rendering PDF…" };
   const renderStartedAt = Date.now();
   logArtifactInfo("artifact_render_started", {
     event: "artifact_render_started",
@@ -231,6 +243,7 @@ const persistArtifact = async <
     byteLength: pdfBytes.length,
   });
 
+  yield { artifactType: kind, title, status: "storing", message: "Storing PDF…" };
   const storageStartedAt = Date.now();
   logArtifactInfo("artifact_pdf_storage_started", {
     event: "artifact_pdf_storage_started",
@@ -257,6 +270,7 @@ const persistArtifact = async <
   // retry would overwrite anyway — this only matters when no retry happens.
   let artifact: Awaited<ReturnType<typeof ctx.artifactStore.putArtifact>>;
   try {
+    yield { artifactType: kind, title, status: "persisting", message: "Saving artifact metadata…" };
     const persistStartedAt = Date.now();
     logArtifactInfo("artifact_db_persist_started", {
       event: "artifact_db_persist_started",
@@ -311,7 +325,7 @@ const persistArtifact = async <
     },
   ];
 
-  return {
+  yield {
     artifactId: artifact.id,
     artifactType: kind,
     title: artifact.title,
@@ -319,9 +333,9 @@ const persistArtifact = async <
     createdAt: artifact.createdAtIso,
     formats,
   };
-};
+}
 
-const runArtifactTool = async <
+async function* runArtifactTool<
   TPayload extends { title?: string; customer?: { name?: string; slug?: string } },
 >({
   ctx,
@@ -333,7 +347,7 @@ const runArtifactTool = async <
   input: TPayload;
   kind: ArtifactKind;
   toolCallId?: string;
-}): Promise<ArtifactToolResult> => {
+}): AsyncGenerator<ArtifactToolOutput> {
   const startedAt = Date.now();
   logArtifactInfo("artifact_tool_started", {
     event: "artifact_tool_started",
@@ -343,16 +357,23 @@ const runArtifactTool = async <
   });
 
   try {
-    const result = await persistArtifact(ctx, kind, input);
-    logArtifactInfo("artifact_tool_finished", {
-      event: "artifact_tool_finished",
-      kind,
-      threadId: ctx.threadId,
-      toolCallId,
-      artifactId: result.artifactId,
-      durationMs: Date.now() - startedAt,
-    });
-    return result;
+    let finalResult: ArtifactToolResult | null = null;
+    for await (const output of persistArtifact(ctx, kind, input)) {
+      if (output.status === "ready") {
+        finalResult = output;
+      }
+      yield output;
+    }
+    if (finalResult) {
+      logArtifactInfo("artifact_tool_finished", {
+        event: "artifact_tool_finished",
+        kind,
+        threadId: ctx.threadId,
+        toolCallId,
+        artifactId: finalResult.artifactId,
+        durationMs: Date.now() - startedAt,
+      });
+    }
   } catch (error) {
     logArtifactError("artifact_tool_failed", {
       event: "artifact_tool_failed",
@@ -364,14 +385,14 @@ const runArtifactTool = async <
     });
     throw error;
   }
-};
+}
 
 export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
   generateFieldBrief: tool({
     description:
       "Render and persist the H2O Field Brief PDF — the 1-2 page strategic decision aid (cover, win-win argument, fully-priced cost-of-alternative table, kill risks, do-this-next actions). Returns the PDF download URL.",
     inputSchema: fieldBriefInputSchema,
-    execute: async (input, { toolCallId }) =>
+    execute: (input, { toolCallId }) =>
       runArtifactTool({ ctx, kind: "field-brief", input, toolCallId }),
   }),
 
@@ -379,7 +400,7 @@ export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
     description:
       "Render and persist the H2O Conversation Playbook PDF — themed question structure (1-2 pages) the field agent uses in the next customer conversation. Returns the PDF download URL.",
     inputSchema: playbookInputSchema,
-    execute: async (input, { toolCallId }) =>
+    execute: (input, { toolCallId }) =>
       runArtifactTool({ ctx, kind: "playbook", input, toolCallId }),
   }),
 
@@ -387,7 +408,7 @@ export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
     description:
       "Render and persist the H2O Analytical Read PDF — 3-6 page evidence-tagged write-up sent upward to leadership. Returns the PDF download URL.",
     inputSchema: analyticalReadInputSchema,
-    execute: async (input, { toolCallId }) =>
+    execute: (input, { toolCallId }) =>
       runArtifactTool({ ctx, kind: "analytical-read", input, toolCallId }),
   }),
 
@@ -395,7 +416,7 @@ export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
     description:
       "Render and persist the H2O Proposal Shell PDF — scoping-language seed (1-5 pages, depth scales with deal stage: one paragraph at Lead, full draft at Propose). Returns the PDF download URL.",
     inputSchema: proposalShellInputSchema,
-    execute: async (input, { toolCallId }) =>
+    execute: (input, { toolCallId }) =>
       runArtifactTool({ ctx, kind: "proposal-shell", input, toolCallId }),
   }),
 });

@@ -293,6 +293,100 @@ describe("createAgent", () => {
     expect(skillContent).not.toContain("/mnt/user-data/outputs");
   });
 
+  it("invokes onNextArtifact with the next artifact kind when artifact mode is active", () => {
+    const onNextArtifact = vi.fn();
+    createAgent({ onNextArtifact });
+    const settings = toolLoopAgentMock.mock.calls.at(-1)?.[0];
+
+    // No artifact mode yet (no skill loaded, no artifact started) → no callback
+    settings.prepareStep({ steps: [] });
+    expect(onNextArtifact).not.toHaveBeenCalled();
+
+    // Field brief skill loaded — the first artifact about to run is field-brief
+    settings.prepareStep({
+      steps: [
+        {
+          content: [
+            { type: "tool-call", toolName: "loadSkill", input: { name: "h2o-field-brief" } },
+            { type: "tool-result", toolName: "loadSkill", output: { name: "h2o-field-brief" } },
+          ],
+        },
+      ],
+    });
+    expect(onNextArtifact).toHaveBeenLastCalledWith("field-brief");
+
+    // After Field Brief completes — next artifact is Playbook
+    settings.prepareStep({
+      steps: [
+        {
+          content: [
+            { type: "tool-call", toolName: "generateFieldBrief" },
+            { type: "tool-result", toolName: "generateFieldBrief" },
+          ],
+        },
+      ],
+    });
+    expect(onNextArtifact).toHaveBeenLastCalledWith("playbook");
+
+    // After Playbook completes — next is Analytical Read
+    settings.prepareStep({
+      steps: [
+        {
+          content: [
+            { type: "tool-result", toolName: "generateFieldBrief" },
+            { type: "tool-result", toolName: "generatePlaybook" },
+          ],
+        },
+      ],
+    });
+    expect(onNextArtifact).toHaveBeenLastCalledWith("analytical-read");
+
+    // After Analytical Read completes — next is Proposal Shell
+    settings.prepareStep({
+      steps: [
+        {
+          content: [
+            { type: "tool-result", toolName: "generateFieldBrief" },
+            { type: "tool-result", toolName: "generatePlaybook" },
+            { type: "tool-result", toolName: "generateAnalyticalRead" },
+          ],
+        },
+      ],
+    });
+    expect(onNextArtifact).toHaveBeenLastCalledWith("proposal-shell");
+
+    // After all four complete — no further artifact to announce
+    onNextArtifact.mockClear();
+    settings.prepareStep({
+      steps: [
+        {
+          content: [
+            { type: "tool-result", toolName: "generateFieldBrief" },
+            { type: "tool-result", toolName: "generatePlaybook" },
+            { type: "tool-result", toolName: "generateAnalyticalRead" },
+            { type: "tool-result", toolName: "generateProposalShell" },
+          ],
+        },
+      ],
+    });
+    expect(onNextArtifact).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke onNextArtifact when callback is not provided", () => {
+    // Sanity: prepareStep must remain side-effect-free for the no-callback path.
+    expect(() => {
+      createAgent();
+      const settings = toolLoopAgentMock.mock.calls.at(-1)?.[0];
+      settings.prepareStep({
+        steps: [
+          {
+            content: [{ type: "tool-result", toolName: "generateFieldBrief" }],
+          },
+        ],
+      });
+    }).not.toThrow();
+  });
+
   it("onStepFinish logs structured usage", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);

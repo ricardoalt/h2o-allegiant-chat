@@ -68,6 +68,15 @@ const ARTIFACT_TOOL_SEQUENCE = [
 
 type ArtifactToolName = (typeof ARTIFACT_TOOL_SEQUENCE)[number];
 
+export type ArtifactKind = "field-brief" | "playbook" | "analytical-read" | "proposal-shell";
+
+const ARTIFACT_TOOL_TO_KIND: Record<ArtifactToolName, ArtifactKind> = {
+  generateFieldBrief: "field-brief",
+  generatePlaybook: "playbook",
+  generateAnalyticalRead: "analytical-read",
+  generateProposalShell: "proposal-shell",
+};
+
 type StepContentPartLike = {
   type?: string;
   toolName?: string;
@@ -113,40 +122,57 @@ const activeToolsWithoutCompletedArtifacts = (
     ],
   }) as ReturnType<PrepareStepFunction<ToolSet>>;
 
-const minimalArtifactPrepareStep: PrepareStepFunction<ToolSet> = ({ steps }) => {
-  let artifactStarted = false;
-  let fieldBriefSkillLoaded = false;
-  const completedArtifacts = new Set<ArtifactToolName>();
+// Builds a prepareStep policy that optionally announces the next artifact
+// kind via `onNextArtifact` before returning the active tool set. The
+// announcement closes the user-visible gap where the model is silently
+// composing the next artifact's tool input JSON for tens of seconds.
+const buildArtifactPrepareStep =
+  (onNextArtifact?: (kind: ArtifactKind) => void): PrepareStepFunction<ToolSet> =>
+  ({ steps }) => {
+    let artifactStarted = false;
+    let fieldBriefSkillLoaded = false;
+    const completedArtifacts = new Set<ArtifactToolName>();
 
-  for (const step of steps) {
-    for (const part of step.content as StepContentPartLike[]) {
-      if (isLoadedSkillPart(part, "h2o-field-brief")) {
-        fieldBriefSkillLoaded = true;
-      }
-      if (!isArtifactToolName(part.toolName)) {
-        continue;
-      }
+    for (const step of steps) {
+      for (const part of step.content as StepContentPartLike[]) {
+        if (isLoadedSkillPart(part, "h2o-field-brief")) {
+          fieldBriefSkillLoaded = true;
+        }
+        if (!isArtifactToolName(part.toolName)) {
+          continue;
+        }
 
-      if (part.type === "tool-call" || part.type === "tool-result" || part.type === "tool-error") {
-        artifactStarted = true;
-      }
+        if (
+          part.type === "tool-call" ||
+          part.type === "tool-result" ||
+          part.type === "tool-error"
+        ) {
+          artifactStarted = true;
+        }
 
-      if (part.type === "tool-result") {
-        completedArtifacts.add(part.toolName);
+        if (part.type === "tool-result") {
+          completedArtifacts.add(part.toolName);
+        }
       }
     }
-  }
 
-  if (!artifactStarted && !fieldBriefSkillLoaded) {
-    return undefined;
-  }
+    if (!artifactStarted && !fieldBriefSkillLoaded) {
+      return undefined;
+    }
 
-  if (completedArtifacts.size === ARTIFACT_TOOL_SEQUENCE.length) {
-    return { toolChoice: "none" } as ReturnType<PrepareStepFunction<ToolSet>>;
-  }
+    if (completedArtifacts.size === ARTIFACT_TOOL_SEQUENCE.length) {
+      return { toolChoice: "none" } as ReturnType<PrepareStepFunction<ToolSet>>;
+    }
 
-  return activeToolsWithoutCompletedArtifacts(completedArtifacts);
-};
+    if (onNextArtifact) {
+      const nextTool = ARTIFACT_TOOL_SEQUENCE.find((tool) => !completedArtifacts.has(tool));
+      if (nextTool) {
+        onNextArtifact(ARTIFACT_TOOL_TO_KIND[nextTool]);
+      }
+    }
+
+    return activeToolsWithoutCompletedArtifacts(completedArtifacts);
+  };
 
 type AgentToolSet = { loadSkill: typeof loadSkillTool } & ToolSet;
 
@@ -204,9 +230,14 @@ const repairInvalidToolInput: NonNullable<
 
 type CreateAgentOptions = {
   tools?: ToolSet;
+  // Fires once per step transition with the next artifact kind the agent is
+  // about to invoke. The chat handler uses this to write a
+  // `data-agent-status` chunk so the UI can label the silent model-thinking
+  // window between artifact tool calls.
+  onNextArtifact?: (kind: ArtifactKind) => void;
 };
 
-export const createAgent = ({ tools = {} }: CreateAgentOptions = {}) =>
+export const createAgent = ({ tools = {}, onNextArtifact }: CreateAgentOptions = {}) =>
   new ToolLoopAgent({
     model: bedrockProvider(MODELS[0].runtimeModelId),
     instructions: H2O_AGENT_SYSTEM_MESSAGES,
@@ -216,7 +247,9 @@ export const createAgent = ({ tools = {} }: CreateAgentOptions = {}) =>
       loadSkill: loadSkillTool,
       ...tools,
     },
-    prepareStep: minimalArtifactPrepareStep as unknown as PrepareStepFunction<AgentToolSet>,
+    prepareStep: buildArtifactPrepareStep(
+      onNextArtifact,
+    ) as unknown as PrepareStepFunction<AgentToolSet>,
     experimental_repairToolCall: repairInvalidToolInput,
     onStepFinish: ({ stepNumber, toolCalls, finishReason, usage }) => {
       const toolNames = toolCalls.map((call) => call.toolName).join(",") || "none";

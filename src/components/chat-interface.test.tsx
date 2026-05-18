@@ -1,15 +1,23 @@
 import { fetchAuthSession } from "aws-amplify/auth";
+import { FileTextIcon } from "lucide-react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { ArtifactToolCard } from "@/components/ai-elements/artifact-tool-card";
+import { PromptInputSubmit } from "@/components/ai-elements/prompt-input";
 import { parseChatRequest } from "@/lib/chat-helpers";
+import type { ReconciliationTelemetryEvent } from "@/lib/chat-reconciliation";
 import {
   LONG_STREAM_RECONCILIATION_OPTIONS,
   reconcileThreadAfterStream,
 } from "@/lib/chat-reconciliation";
-import type { ReconciliationTelemetryEvent } from "@/lib/chat-reconciliation";
-import { canSubmitPromptMessage } from "@/lib/chat-utils";
-import type { MyUIMessage } from "@/types/ui-message";
 import {
+  canSubmitPromptMessage,
+  shouldShowAgentStatusProgress,
+  shouldShowLoadingShimmer,
+} from "@/lib/chat-utils";
+import type { AgentStatusData, MyUIMessage } from "@/types/ui-message";
+import {
+  AgentStatusProgress,
   ChatRuntimeError,
   getChatTransportApi,
   getToolRenderingMetadata,
@@ -162,6 +170,207 @@ describe("prepareChatSendMessagesRequest", () => {
       webSearchEnabled: false,
     });
     expect(parseChatRequest(prepared.body).regenerateMessageId).toBe("assistant-1");
+  });
+});
+
+describe("agent status progress", () => {
+  it("does not show generic agent status while assistant text is already visible", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "I am drafting the field brief now." }],
+      },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("streaming", messages, {
+        phase: "still-working",
+        label: "Still working…",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the agent status visible while an artifact tool input is still streaming", () => {
+    // ArtifactToolCard returns null during `input-streaming` / `input-available`
+    // so the global progress bar is the only signal the user has during the
+    // long model-composition window. Hiding it would leave the screen blank.
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generateFieldBrief",
+            state: "input-available",
+            input: {},
+            toolCallId: "tool-1",
+          } as unknown as MyUIMessage["parts"][number],
+        ],
+      },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("streaming", messages, {
+        phase: "preparing-artifact",
+        artifactKind: "field-brief",
+        label: "Preparing Field Brief…",
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the generic agent status once the artifact tool has output to render", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generateFieldBrief",
+            state: "output-available",
+            input: {},
+            output: {
+              artifactType: "field-brief",
+              title: "Field Brief",
+              status: "rendering",
+              message: "Rendering PDF…",
+            },
+            toolCallId: "tool-1",
+          } as unknown as MyUIMessage["parts"][number],
+        ],
+      },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("streaming", messages, {
+        phase: "still-working",
+        label: "Still working…",
+      }),
+    ).toBe(false);
+  });
+
+  it("shows generic agent status during a silent submitted gap", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("submitted", messages, {
+        phase: "still-working",
+        label: "Still working…",
+      }),
+    ).toBe(true);
+  });
+
+  it("renders semantic progress labels with elapsed seconds without exposing tool parameters", () => {
+    const status: AgentStatusData = {
+      phase: "still-working",
+      label: "Still working…",
+      detail: "The agent is generating or waiting on tool work.",
+      elapsedMs: 12_300,
+    };
+
+    const markup = renderToStaticMarkup(<AgentStatusProgress status={status} />);
+
+    expect(markup).toContain("Still working…");
+    expect(markup).toContain("The agent is generating or waiting on tool work. 12s elapsed.");
+    expect(markup).not.toContain("toolCallId");
+    expect(markup).not.toContain("input");
+  });
+
+  it("renders the per-artifact preparing label with a kind-specific accent on preparing-artifact phase", () => {
+    // The agent emits `preparing-artifact` between artifact tool calls so the
+    // UI can name the artifact the model is composing rather than showing a
+    // generic "Still working…" placeholder.
+    const status: AgentStatusData = {
+      phase: "preparing-artifact",
+      artifactKind: "playbook",
+      label: "Preparing Conversation Playbook…",
+      detail: "The model is composing the next artifact.",
+      elapsedMs: 24_000,
+    };
+
+    const markup = renderToStaticMarkup(<AgentStatusProgress status={status} />);
+
+    expect(markup).toContain("Preparing Conversation Playbook…");
+    expect(markup).toContain("24s elapsed");
+    // The component should expose the artifact kind in a data attribute so
+    // styling and integration tests can hook into it without scraping copy.
+    expect(markup).toContain('data-artifact-kind="playbook"');
+  });
+});
+
+describe("artifact tool card", () => {
+  it("renders preliminary artifact progress messages without expecting a PDF link", () => {
+    const markup = renderToStaticMarkup(
+      <ArtifactToolCard
+        Icon={FileTextIcon}
+        title="Field Brief"
+        state="output-available"
+        output={{
+          artifactType: "field-brief",
+          title: "Field Brief",
+          status: "rendering",
+          message: "Rendering PDF…",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Rendering PDF…");
+    expect(markup).not.toContain("Download");
+    expect(markup).not.toContain("View");
+  });
+});
+
+describe("submit button semantics", () => {
+  it("keeps submit semantics during streaming when no stop handler is wired", () => {
+    const markup = renderToStaticMarkup(<PromptInputSubmit status="streaming" />);
+
+    expect(markup).toContain('aria-label="Submit"');
+    expect(markup).toContain('type="submit"');
+  });
+
+  it("uses stop semantics during streaming when a stop handler is wired", () => {
+    const markup = renderToStaticMarkup(
+      <PromptInputSubmit status="streaming" onStop={() => undefined} />,
+    );
+
+    expect(markup).toContain('aria-label="Stop"');
+    expect(markup).toContain('type="button"');
+  });
+});
+
+describe("loading shimmer helpers", () => {
+  it("hides generic thinking shimmer when the last assistant has active artifact tool progress", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generateFieldBrief",
+            state: "input-available",
+            input: {},
+            toolCallId: "tool-1",
+          } as unknown as MyUIMessage["parts"][number],
+        ],
+      },
+    ];
+
+    expect(shouldShowLoadingShimmer("streaming", messages)).toBe(false);
+  });
+
+  it("keeps generic thinking shimmer when a streaming assistant has no visible content or tool progress", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Hello" }] },
+      { id: "assistant-1", role: "assistant", parts: [] },
+    ];
+
+    expect(shouldShowLoadingShimmer("streaming", messages)).toBe(true);
   });
 });
 

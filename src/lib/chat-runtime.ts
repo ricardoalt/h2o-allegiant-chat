@@ -46,6 +46,9 @@ export type ToolPartLike = {
   approval?: unknown;
 };
 
+const ABORTED_TOOL_ERROR_TEXT =
+  "Response timed out before this tool finished. The artifact was interrupted before execution completed; ask the agent to retry.";
+
 // Tool states left non-terminal when a stream aborts. AI SDK v6's
 // `convertToModelMessages({ ignoreIncompleteToolCalls: true })` only filters
 // `input-streaming` and `input-available` from model history — it does NOT
@@ -89,7 +92,7 @@ export const sanitizeAbortedToolParts = (message: MyUIMessage): MyUIMessage => {
     return {
       ...rest,
       state: "output-error",
-      errorText: "Response interrupted before this tool finished. Ask the agent to retry.",
+      errorText: ABORTED_TOOL_ERROR_TEXT,
     } as MyUIMessage["parts"][number];
   });
 

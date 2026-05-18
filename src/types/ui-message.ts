@@ -8,6 +8,34 @@ import type { UIMessage } from "ai";
 
 type ArtifactKind = "field-brief" | "playbook" | "analytical-read" | "proposal-shell";
 
+export type AgentStatusPhase =
+  | "preparing-analysis"
+  | "preparing-artifact"
+  | "still-working"
+  | "streaming-results"
+  | "complete"
+  | "error";
+
+export type AgentStatusData = {
+  phase: AgentStatusPhase;
+  label: string;
+  detail?: string;
+  elapsedMs?: number;
+  // Carried when phase identifies a specific artifact tool the agent is about
+  // to invoke. Lets the UI replace the generic "Still working…" status with a
+  // semantic "Preparing Playbook…" between artifact tool calls.
+  artifactKind?: ArtifactKind;
+};
+
+export type ArtifactToolProgressStatus = "rendering" | "storing" | "persisting";
+
+export type ArtifactToolUIProgress = {
+  artifactType: ArtifactKind;
+  title: string;
+  status: ArtifactToolProgressStatus;
+  message: string;
+};
+
 export type ArtifactToolUIResult = {
   artifactId: string;
   artifactType: ArtifactKind;
@@ -22,6 +50,8 @@ export type ArtifactToolUIResult = {
   }>;
 };
 
+export type ArtifactToolUIOutput = ArtifactToolUIProgress | ArtifactToolUIResult;
+
 export type MyUIMessage = UIMessage<
   unknown,
   {
@@ -35,23 +65,24 @@ export type MyUIMessage = UIMessage<
       createdAt: string;
       updatedAt: string;
     };
+    "agent-status": AgentStatusData;
   },
   {
     generateFieldBrief: {
       input: unknown;
-      output: ArtifactToolUIResult;
+      output: ArtifactToolUIOutput;
     };
     generatePlaybook: {
       input: unknown;
-      output: ArtifactToolUIResult;
+      output: ArtifactToolUIOutput;
     };
     generateAnalyticalRead: {
       input: unknown;
-      output: ArtifactToolUIResult;
+      output: ArtifactToolUIOutput;
     };
     generateProposalShell: {
       input: unknown;
-      output: ArtifactToolUIResult;
+      output: ArtifactToolUIOutput;
     };
   }
 >;

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
-import { CornerDownLeftIcon, ImageIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ImageIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { nanoid } from "nanoid";
 import type {
   ChangeEvent,
@@ -1125,12 +1125,13 @@ export const PromptInputSubmit = ({
   ...props
 }: PromptInputSubmitProps) => {
   const isGenerating = status === "submitted" || status === "streaming";
+  const canStop = isGenerating && Boolean(onStop);
 
-  let Icon = <CornerDownLeftIcon className="size-4" />;
+  let Icon = <ArrowUpIcon className="size-4" />;
 
   if (status === "submitted") {
     Icon = <Spinner />;
-  } else if (status === "streaming") {
+  } else if (status === "streaming" && onStop) {
     Icon = <SquareIcon className="size-4" />;
   } else if (status === "error") {
     Icon = <XIcon className="size-4" />;
@@ -1138,23 +1139,23 @@ export const PromptInputSubmit = ({
 
   const handleClick = useCallback<NonNullable<ComponentProps<typeof InputGroupButton>["onClick"]>>(
     (e) => {
-      if (isGenerating && onStop) {
+      if (canStop) {
         e.preventDefault();
-        onStop();
+        onStop?.();
         return;
       }
       onClick?.(e);
     },
-    [isGenerating, onStop, onClick],
+    [canStop, onStop, onClick],
   );
 
   return (
     <InputGroupButton
-      aria-label={isGenerating ? "Stop" : "Submit"}
+      aria-label={canStop ? "Stop" : "Submit"}
       className={cn(className)}
       onClick={handleClick}
       size={size}
-      type={isGenerating && onStop ? "button" : "submit"}
+      type={canStop ? "button" : "submit"}
       variant={variant}
       {...props}
     >
