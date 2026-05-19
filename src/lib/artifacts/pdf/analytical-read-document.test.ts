@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { AnalyticalReadPayload } from "../payloads";
 import {
   analyticalEvidenceTagBorderColor,
+  analyticalFlagSeverity,
   analyticalSectionDefaultColor,
   collectTableHeaders,
+  costConfidenceColor,
   renderAnalyticalReadPdf,
+  shouldRenderAnalyticalBanners,
 } from "./analytical-read-document";
 import { h2oBrand } from "./brand-tokens";
 
@@ -63,5 +66,115 @@ describe("collectTableHeaders", () => {
 describe("analyticalEvidenceTagBorderColor", () => {
   it("returns the v3 line color for evidence tag chip border", () => {
     expect(analyticalEvidenceTagBorderColor()).toBe(h2oBrand.colors.line);
+  });
+});
+
+// ─── Slice E RED ──────────────────────────────────────────────────────────────
+
+describe("analyticalFlagSeverity", () => {
+  it("maps exact task severities to shared primitive severities", () => {
+    expect(analyticalFlagSeverity("STOP")).toBe("stop");
+    expect(analyticalFlagSeverity("SPECIALIST")).toBe("specialist");
+    expect(analyticalFlagSeverity("ATTENTION")).toBe("attention");
+    expect(analyticalFlagSeverity("CLEAR")).toBe("clear");
+  });
+
+  it("normalizes mixed case, punctuation, and unknown values safely", () => {
+    expect(analyticalFlagSeverity("stop-work")).toBe("stop");
+    expect(analyticalFlagSeverity("Needs Specialist Review")).toBe("specialist");
+    expect(analyticalFlagSeverity("watch attention item")).toBe("attention");
+    expect(analyticalFlagSeverity("unknown")).toBe("attention");
+  });
+});
+
+describe("costConfidenceColor", () => {
+  it("maps confidence tiers to the required brand colors", () => {
+    expect(costConfidenceColor("HIGH")).toBe(h2oBrand.colors.navy);
+    expect(costConfidenceColor("MEDIUM")).toBe(h2oBrand.colors.amber);
+    expect(costConfidenceColor("LOW")).toBe(h2oBrand.colors.red);
+    expect(costConfidenceColor("QUALITATIVE")).toBe(h2oBrand.colors.muted);
+  });
+
+  it("normalizes case and falls back to muted for unknown tiers", () => {
+    expect(costConfidenceColor("high")).toBe(h2oBrand.colors.navy);
+    expect(costConfidenceColor("Medium confidence")).toBe(h2oBrand.colors.amber);
+    expect(costConfidenceColor("unknown")).toBe(h2oBrand.colors.muted);
+  });
+});
+
+describe("shouldRenderAnalyticalBanners", () => {
+  it("suppresses both banners when gateState and flags are absent", () => {
+    expect(shouldRenderAnalyticalBanners({})).toEqual({ gate: false, compliance: false });
+  });
+
+  it("renders gate and compliance independently", () => {
+    expect(shouldRenderAnalyticalBanners({ gateState: "OPEN" })).toEqual({
+      gate: true,
+      compliance: false,
+    });
+    expect(
+      shouldRenderAnalyticalBanners({
+        flags: [{ id: "F-1", severity: "STOP", evidence: "Permit" }],
+      }),
+    ).toEqual({
+      gate: false,
+      compliance: true,
+    });
+  });
+});
+
+describe("renderAnalyticalReadPdf — Slice E", () => {
+  it("renders a backward-compatible legacy payload without Slice E fields as one non-empty PDF", async () => {
+    const pdf = await renderAnalyticalReadPdf({
+      customer: payload.customer,
+      summary: payload.summary,
+      sections: [{ heading: "Legacy", body: "Legacy analytical read body." }],
+    });
+
+    expect(pdf.byteLength).toBeGreaterThan(1000);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  });
+
+  it("renders a full Slice E payload with banners, tables, costs, and evidence anchors", async () => {
+    const pdf = await renderAnalyticalReadPdf({
+      ...payload,
+      customer: {
+        ...payload.customer,
+        basin: "Permian",
+        county: "Reeves County",
+        state: "TX",
+      },
+      gateState: "OPEN_WITH_CONDITIONS",
+      gateContent: "Commercial gate remains open if permit evidence is confirmed.",
+      flags: [
+        {
+          id: "SAF-01",
+          severity: "STOP",
+          evidence: "Confined-space entry record missing",
+          status: "Open",
+        },
+        { id: "OPS-02", severity: "SPECIALIST", evidence: "Pretreatment review needed" },
+      ],
+      subStreamLens: [
+        {
+          subStream: "Wet weather",
+          activeCondition: "Peaks exceed reserve",
+          evidenceAnchor: "FLOW-01",
+        },
+      ],
+      stageGapAnalysis: [{ required: "Permit file", status: "Partial", source: "TCEQ" }],
+      costRows: [{ row: "Temporary hauling", basis: "$18k/month", confidence: "MEDIUM" }],
+      sections: [
+        {
+          heading: "Evidence base",
+          body: "Flow data supports the wet-weather lens.",
+          evidenceSource: "FLOW-01",
+          confidenceTier: "HIGH",
+        },
+      ],
+    });
+
+    expect(pdf.byteLength).toBeGreaterThan(1000);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
   });
 });

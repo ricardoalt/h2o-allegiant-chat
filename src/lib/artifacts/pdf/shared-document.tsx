@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ReactNode } from "react";
-import { h2oBrand } from "./brand-tokens";
+import { bannerTone, h2oBrand, severityBg } from "./brand-tokens";
 
 const DEFAULT_LOGO_PATH = join(process.cwd(), "public", "h2o-allegiant.png");
 
@@ -125,15 +125,21 @@ const styles = StyleSheet.create({
   },
 });
 
-export const LogoMark = () => {
+/**
+ * H2O Allegiant logo mark.
+ * `size="sm"` renders at ~54×22 (75% of default). Default keeps prior behavior.
+ */
+export const LogoMark = ({ size = "md" }: { size?: "sm" | "md" }) => {
   const logoSource = resolveH2oPdfLogoSource();
+  const width = size === "sm" ? 54 : h2oBrand.logo.width;
+  const height = size === "sm" ? 22 : h2oBrand.logo.height;
 
   if (logoSource) {
-    return <Image src={logoSource} style={styles.logoImage} />;
+    return <Image src={logoSource} style={[styles.logoImage, { width, height }]} />;
   }
 
   return (
-    <View style={styles.logoFallback}>
+    <View style={[styles.logoFallback, { width, height }]}>
       <Text style={styles.logoFallbackText}>H2O Allegiant</Text>
     </View>
   );
@@ -143,22 +149,29 @@ export const StageBadge = ({ stage }: { stage: string }) => (
   <Text style={[styles.badge, { backgroundColor: stageBadgeColor(stage) }]}>Stage: {stage}</Text>
 );
 
+/**
+ * @deprecated CoverBlock is Tier 1 only (Field Brief). Tier 2 documents must use MinimalHeader.
+ * This component will be removed in a future change once all Tier 2 renderers have migrated.
+ */
 export const CoverBlock = ({
   artifactLabel,
   customerName,
   date,
   location,
+  logoSize,
   stage,
 }: {
   artifactLabel: string;
   customerName: string;
   date?: string;
   location?: string;
+  /** Optional logo size override. Defaults to "md" (full size). Use "sm" for continuation headers. */
+  logoSize?: "sm" | "md";
   stage: string;
 }) => (
   <View style={styles.cover}>
     <View style={styles.coverTop}>
-      <LogoMark />
+      <LogoMark size={logoSize} />
       <StageBadge stage={stage} />
     </View>
     <Text style={styles.title}>{customerName}</Text>
@@ -179,12 +192,619 @@ export const InsightBox = ({ children }: { children: ReactNode }) => (
   <Text style={styles.insight}>{children}</Text>
 );
 
-export const Footer = ({ label }: { label: string }) => (
+/**
+ * Text-only footer: left `H2O Allegiant Discovery Agent · Internal handover`, right `Page N`.
+ * No image, no logo. Applies to all four document types per R4.
+ * The `label` prop is retained for legacy callers but ignored — footer text is now canonical.
+ * @deprecated passing `label` has no effect; remove the prop in Slice C/D/E/F.
+ */
+export const Footer = (_props?: { label?: string }) => (
   <View fixed style={styles.footer}>
-    <Text style={styles.footerText}>{label} · Internal handover</Text>
-    <Text
-      render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`}
-      style={styles.footerText}
-    />
+    <Text style={styles.footerText}>H2O Allegiant Discovery Agent · Internal handover</Text>
+    <Text render={({ pageNumber }) => `Page ${pageNumber}`} style={styles.footerText} />
+  </View>
+);
+
+// ─── Slice A — New shared primitives ──────────────────────────────────────────
+
+const newStyles = StyleSheet.create({
+  // MinimalHeader
+  minimalHeaderWrap: {
+    marginBottom: 8,
+  },
+  minimalHeaderTitle: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 15,
+    lineHeight: 1.04,
+    marginBottom: 1,
+  },
+  minimalHeaderMeta: {
+    borderBottomColor: h2oBrand.colors.line,
+    borderBottomWidth: 1,
+    color: h2oBrand.colors.muted,
+    fontSize: 7.5,
+    lineHeight: 1.15,
+    paddingBottom: 3,
+  },
+  // MinimalContinuationHeader
+  continuationStripWrap: {
+    alignItems: "center",
+    borderBottomColor: h2oBrand.colors.line,
+    borderBottomWidth: 1,
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    left: h2oBrand.page.paddingX,
+    paddingBottom: 3,
+    position: "absolute",
+    right: h2oBrand.page.paddingX,
+    top: 16,
+  },
+  continuationStripText: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 7.5,
+  },
+  continuationStripPage: {
+    color: h2oBrand.colors.muted,
+    fontFamily: h2oBrand.font.mono,
+    fontSize: 7,
+  },
+  // StatusBanner
+  statusBannerWrap: {
+    borderLeftWidth: 3,
+    marginBottom: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  statusBannerLabel: {
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 8,
+    lineHeight: 1.1,
+    marginBottom: 2,
+  },
+  statusBannerBody: {
+    fontSize: 7.8,
+    lineHeight: 1.15,
+  },
+  // FullWidthBanner
+  fullWidthBannerWrap: {
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  fullWidthBannerText: {
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 8,
+    letterSpacing: 0.5,
+    lineHeight: 1.1,
+    textTransform: "uppercase",
+  },
+  // SeverityToken
+  severityTokenText: {
+    borderRadius: 2,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 6.5,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+  },
+  // FlagListItem
+  flagItemWrap: {
+    display: "flex",
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 4,
+    alignItems: "flex-start",
+  },
+  flagItemId: {
+    flexBasis: 80,
+    flexShrink: 0,
+    fontFamily: h2oBrand.font.mono,
+    fontSize: 7.2,
+    lineHeight: 1.1,
+    color: h2oBrand.colors.ink,
+  },
+  flagItemEvidence: {
+    flex: 1,
+    fontSize: 7.8,
+    lineHeight: 1.15,
+  },
+  flagItemStatus: {
+    color: h2oBrand.colors.muted,
+    fontSize: 7.2,
+    lineHeight: 1.1,
+    marginLeft: 4,
+  },
+  // EvidenceAnchorInline
+  evidenceAnchor: {
+    fontFamily: h2oBrand.font.mono,
+    fontSize: 6.5,
+    color: h2oBrand.colors.muted,
+  },
+  // DataTable
+  dataTableWrap: {
+    marginBottom: 4,
+  },
+  dataTableRow: {
+    borderBottomColor: h2oBrand.colors.line,
+    borderBottomWidth: 0.5,
+    display: "flex",
+    flexDirection: "row",
+  },
+  dataTableHeaderNavyDark: {
+    backgroundColor: h2oBrand.colors.navy,
+  },
+  dataTableHeaderNavyLight: {
+    backgroundColor: h2oBrand.colors.panelBlue,
+  },
+  dataTableHeaderPlain: {
+    backgroundColor: h2oBrand.colors.panel,
+    borderBottomColor: h2oBrand.colors.navy,
+    borderBottomWidth: 0.8,
+  },
+  dataTableHeaderCellNavyDark: {
+    color: h2oBrand.colors.white,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 7,
+    lineHeight: 1.1,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+  dataTableHeaderCellNavyLight: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 7,
+    lineHeight: 1.1,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+  dataTableHeaderCellPlain: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 7,
+    lineHeight: 1.1,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+  dataTableBodyCell: {
+    fontSize: 7.2,
+    lineHeight: 1.1,
+    paddingHorizontal: 5,
+    paddingVertical: 2.5,
+  },
+  // KVTable
+  kvTableWrap: {
+    marginBottom: 4,
+  },
+  kvTableRow: {
+    borderBottomColor: h2oBrand.colors.line,
+    borderBottomWidth: 0.5,
+    display: "flex",
+    flexDirection: "row",
+  },
+  kvTableLabel: {
+    color: h2oBrand.colors.navy,
+    flexBasis: "40%",
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 7.2,
+    lineHeight: 1.1,
+    paddingHorizontal: 5,
+    paddingVertical: 2.5,
+  },
+  kvTableValue: {
+    flex: 1,
+    fontSize: 7.2,
+    lineHeight: 1.1,
+    paddingHorizontal: 5,
+    paddingVertical: 2.5,
+  },
+  // SectionHeading
+  sectionHeadingWrap: {
+    borderBottomWidth: 1.5,
+    marginBottom: 5,
+    paddingBottom: 3,
+  },
+  sectionHeadingRow: {
+    alignItems: "baseline",
+    display: "flex",
+    flexDirection: "row",
+    gap: 6,
+  },
+  sectionHeadingIndex: {
+    fontSize: 13,
+    lineHeight: 1.0,
+  },
+  sectionHeadingTitle: {
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 11,
+    lineHeight: 1.05,
+  },
+  sectionHeadingSubLine: {
+    fontSize: 8,
+    fontStyle: "italic",
+    lineHeight: 1.2,
+    marginTop: 1,
+  },
+  // WhyItMattersCallout
+  whyCalloutWrap: {
+    borderTopWidth: 2,
+    marginBottom: 6,
+    marginTop: 3,
+    paddingHorizontal: 8,
+    paddingTop: 5,
+    paddingBottom: 5,
+  },
+  whyCalloutTitle: {
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 7.5,
+    lineHeight: 1.1,
+    marginBottom: 3,
+    textTransform: "uppercase",
+  },
+  whyCalloutItem: {
+    display: "flex",
+    flexDirection: "row",
+    gap: 4,
+    marginBottom: 2,
+  },
+  whyCalloutBullet: {
+    fontSize: 7.5,
+    width: 6,
+  },
+  whyCalloutText: {
+    flex: 1,
+    fontSize: 7.5,
+    lineHeight: 1.15,
+  },
+});
+
+// ─── Pure helpers ──────────────────────────────────────────────────────────────
+
+type StatusBannerSeverity =
+  | "open"
+  | "open-with-conditions"
+  | "conditionally-open"
+  | "closed"
+  | "stop"
+  | "specialist"
+  | "attention"
+  | "clear";
+
+export const statusBannerBackground = (severity: StatusBannerSeverity): string => {
+  if (severity === "stop" || severity === "closed") return severityBg.stop;
+  if (
+    severity === "specialist" ||
+    severity === "open-with-conditions" ||
+    severity === "conditionally-open"
+  )
+    return severityBg.specialist;
+  if (severity === "attention") return severityBg.attention;
+  if (severity === "open") return severityBg.openGreen;
+  return severityBg.clear;
+};
+
+export const statusBannerAccent = (severity: StatusBannerSeverity): string => {
+  if (severity === "stop" || severity === "closed") return h2oBrand.colors.severity.stop;
+  if (
+    severity === "specialist" ||
+    severity === "open-with-conditions" ||
+    severity === "conditionally-open"
+  )
+    return h2oBrand.colors.severity.specialist;
+  if (severity === "attention") return h2oBrand.colors.severity.attention;
+  if (severity === "open") return h2oBrand.colors.green;
+  return h2oBrand.colors.muted;
+};
+
+// ─── Components ────────────────────────────────────────────────────────────────
+
+/**
+ * Text-only header for Tier 2 documents (Playbook, Analytical Read, Proposal Shell).
+ * Renders: bold navy title `{customerName} — {site?}`, metadata line with county/state/basin?/date/artifactLabel,
+ * followed by a 1px bottom-border rule. No logo, no stage badge.
+ */
+export const MinimalHeader = ({
+  customerName,
+  site,
+  county,
+  state,
+  basin,
+  date,
+  artifactLabel,
+}: {
+  customerName: string;
+  site?: string;
+  county: string;
+  state: string;
+  basin?: string;
+  date: string;
+  artifactLabel: string;
+}) => {
+  const title = site ? `${customerName} — ${site}` : customerName;
+  const locationParts = [
+    `${county}, ${state}`,
+    basin ? `(${basin})` : null,
+    date,
+    artifactLabel,
+    "Internal handover",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <View style={newStyles.minimalHeaderWrap}>
+      <Text style={newStyles.minimalHeaderTitle}>{title}</Text>
+      <Text style={newStyles.minimalHeaderMeta}>{locationParts}</Text>
+    </View>
+  );
+};
+
+/**
+ * Text-only continuation header strip for Tier 2 documents (page 2+).
+ * Render inside a parent fixed wrapper that returns null on page 1 and this strip on page 2+.
+ * No logo, no stage badge.
+ */
+export const MinimalContinuationHeader = ({
+  customerName,
+  site,
+  artifactLabel,
+  pageNumber,
+}: {
+  customerName: string;
+  site?: string;
+  artifactLabel: string;
+  pageNumber?: number;
+}) => {
+  const label = site
+    ? `${customerName} — ${site} · ${artifactLabel} (continued)`
+    : `${customerName} · ${artifactLabel} (continued)`;
+
+  return (
+    <View fixed style={newStyles.continuationStripWrap}>
+      <Text style={newStyles.continuationStripText}>{label}</Text>
+      {pageNumber !== undefined ? (
+        <Text style={newStyles.continuationStripPage}>Page {pageNumber}</Text>
+      ) : (
+        <Text
+          render={({ pageNumber: pn }) => `Page ${pn}`}
+          style={newStyles.continuationStripPage}
+        />
+      )}
+    </View>
+  );
+};
+
+/**
+ * Colored-bar callout for qualification gate state or compliance/safety flag severity.
+ * Background and accent color driven by `statusBannerBackground` + `statusBannerAccent` helpers.
+ */
+export const StatusBanner = ({
+  severity,
+  label,
+  body,
+  children,
+}: {
+  severity: StatusBannerSeverity;
+  label: string;
+  body?: string;
+  children?: ReactNode;
+}) => {
+  const bg = statusBannerBackground(severity);
+  const accent = statusBannerAccent(severity);
+
+  return (
+    <View style={[newStyles.statusBannerWrap, { backgroundColor: bg, borderLeftColor: accent }]}>
+      <Text style={[newStyles.statusBannerLabel, { color: accent }]}>{label}</Text>
+      {body ? <Text style={newStyles.statusBannerBody}>{body}</Text> : null}
+      {children}
+    </View>
+  );
+};
+
+/**
+ * Full-width inverted uppercase banner. Used for DRAFT INTENT (red), internal-only footers (red),
+ * or navy section dividers.
+ */
+export const FullWidthBanner = ({
+  tone,
+  text,
+}: {
+  tone: "red" | "amber" | "navy";
+  text: string;
+}) => {
+  const { bg, text: textColor } = bannerTone[tone];
+
+  return (
+    <View style={[newStyles.fullWidthBannerWrap, { backgroundColor: bg }]}>
+      <Text style={[newStyles.fullWidthBannerText, { color: textColor }]}>{text}</Text>
+    </View>
+  );
+};
+
+type FlagSeverity = "stop" | "specialist" | "attention" | "clear";
+
+/**
+ * Inline severity pill text — must live inside a Text parent for true inline flow.
+ * Uses `severityBg` background tint and the severity foreground color.
+ */
+export const SeverityToken = ({ severity }: { severity: FlagSeverity }) => {
+  const bg = severityBg[severity];
+  const color =
+    severity === "stop"
+      ? h2oBrand.colors.severity.stop
+      : severity === "specialist"
+        ? h2oBrand.colors.severity.specialist
+        : severity === "attention"
+          ? h2oBrand.colors.severity.attention
+          : h2oBrand.colors.muted;
+  const label = severity.toUpperCase();
+
+  return <Text style={[newStyles.severityTokenText, { backgroundColor: bg, color }]}>{label}</Text>;
+};
+
+/**
+ * Flag list row: monospace ID + SeverityToken pill + evidence text + optional status.
+ * Per design §2: `flexBasis: 80` + `flexShrink: 0` on ID column to prevent wrap on long IDs.
+ */
+export const FlagListItem = ({
+  id,
+  severity,
+  evidence,
+  status,
+}: {
+  id: string;
+  severity: FlagSeverity;
+  evidence: string;
+  status?: string;
+}) => (
+  <View style={newStyles.flagItemWrap}>
+    <Text style={newStyles.flagItemId}>{id}</Text>
+    <SeverityToken severity={severity} />
+    <Text style={newStyles.flagItemEvidence}>{evidence}</Text>
+    {status ? <Text style={newStyles.flagItemStatus}>{status}</Text> : null}
+  </View>
+);
+
+/**
+ * Small-caps inline evidence anchor `[ID]`. Must be nested inside a `Text` parent — drops chip
+ * background to support true inline @react-pdf nested-text per design §2 + risk #8.
+ * @example <Text>Body text <EvidenceAnchorInline id="PW-01" /></Text>
+ */
+export const EvidenceAnchorInline = ({ id }: { id: string }) => (
+  <Text style={newStyles.evidenceAnchor}>[{id}]</Text>
+);
+
+type DataTableColumn = {
+  key: string;
+  header: string;
+  flexBasis: number;
+  align?: "left" | "right" | "center";
+  cellRender?: (value: string, row: Record<string, string>) => ReactNode;
+};
+
+/**
+ * Generic data table with explicit `flexBasis` per column to defeat @react-pdf auto-sizing.
+ * `headerStyle` controls the header row background treatment.
+ */
+export const DataTable = ({
+  columns,
+  rows,
+  headerStyle,
+}: {
+  columns: DataTableColumn[];
+  rows: Array<Record<string, string>>;
+  headerStyle: "navy-dark" | "navy-light" | "plain";
+}) => {
+  const headerRowStyle =
+    headerStyle === "navy-dark"
+      ? newStyles.dataTableHeaderNavyDark
+      : headerStyle === "navy-light"
+        ? newStyles.dataTableHeaderNavyLight
+        : newStyles.dataTableHeaderPlain;
+
+  const headerCellStyle =
+    headerStyle === "navy-dark"
+      ? newStyles.dataTableHeaderCellNavyDark
+      : headerStyle === "navy-light"
+        ? newStyles.dataTableHeaderCellNavyLight
+        : newStyles.dataTableHeaderCellPlain;
+
+  return (
+    <View style={newStyles.dataTableWrap}>
+      <View style={[newStyles.dataTableRow, headerRowStyle]}>
+        {columns.map((col) => (
+          <Text
+            key={col.key}
+            style={[headerCellStyle, { flexBasis: col.flexBasis, textAlign: col.align ?? "left" }]}
+          >
+            {col.header}
+          </Text>
+        ))}
+      </View>
+      {rows.map((row, rowIndex) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable id
+        <View key={rowIndex} style={newStyles.dataTableRow}>
+          {columns.map((col) => (
+            <View key={col.key} style={[{ flexBasis: col.flexBasis }]}>
+              {col.cellRender ? (
+                col.cellRender(row[col.key] ?? "", row)
+              ) : (
+                <Text style={[newStyles.dataTableBodyCell, { textAlign: col.align ?? "left" }]}>
+                  {row[col.key] ?? ""}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+};
+
+/**
+ * Key-value table: 40% label / 60% value split with thin separators.
+ */
+export const KVTable = ({ rows }: { rows: Array<{ label: string; value: string }> }) => (
+  <View style={newStyles.kvTableWrap}>
+    {rows.map((row) => (
+      <View key={row.label} style={newStyles.kvTableRow}>
+        <Text style={newStyles.kvTableLabel}>{row.label}</Text>
+        <Text style={newStyles.kvTableValue}>{row.value}</Text>
+      </View>
+    ))}
+  </View>
+);
+
+/**
+ * Section heading with accent bottom border and flat numeral.
+ * Optional `italicSubLine` renders a colored italic sub-line below the title.
+ * New export — `SectionHeader` (dot variant) is kept unchanged for Field Brief Tier 1.
+ */
+export const SectionHeading = ({
+  index,
+  title,
+  accentColor,
+  italicSubLine,
+}: {
+  index: number;
+  title: string;
+  accentColor: string;
+  italicSubLine?: string;
+}) => (
+  <View style={[newStyles.sectionHeadingWrap, { borderBottomColor: accentColor }]}>
+    <View style={newStyles.sectionHeadingRow}>
+      <Text style={[newStyles.sectionHeadingIndex, { color: accentColor }]}>{index}</Text>
+      <Text style={[newStyles.sectionHeadingTitle, { color: h2oBrand.colors.navy }]}>{title}</Text>
+    </View>
+    {italicSubLine ? (
+      <Text style={[newStyles.sectionHeadingSubLine, { color: accentColor }]}>{italicSubLine}</Text>
+    ) : null}
+  </View>
+);
+
+/**
+ * "Why it matters" accent callout panel with top accent border and bullet list.
+ */
+export const WhyItMattersCallout = ({
+  items,
+  accentColor,
+}: {
+  items: string[];
+  accentColor: string;
+}) => (
+  <View
+    style={[
+      newStyles.whyCalloutWrap,
+      { borderTopColor: accentColor, backgroundColor: h2oBrand.colors.panel },
+    ]}
+  >
+    <Text style={[newStyles.whyCalloutTitle, { color: accentColor }]}>Why it matters</Text>
+    {items.map((item) => (
+      <View key={item} style={newStyles.whyCalloutItem}>
+        <Text style={[newStyles.whyCalloutBullet, { color: accentColor }]}>•</Text>
+        <Text style={newStyles.whyCalloutText}>{item}</Text>
+      </View>
+    ))}
   </View>
 );

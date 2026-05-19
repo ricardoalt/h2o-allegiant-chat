@@ -63,3 +63,29 @@ export const themePalette = [
   "#E11D48",
   "#15803D",
 ];
+
+// Severity background tints — verbatim hex from brand.py _FLAG_SEVERITY_MAP / _GATE_STATE_MAP
+export const severityBg = {
+  stop: "#FBE7E7", // brand.py STOP / CLOSED tint
+  specialist: "#FDF2E1", // brand.py SPECIALIST / CONDITIONAL tint
+  attention: "#FDF7E1", // brand.py ATTENTION tint
+  clear: "#F8FAFC", // brand.py LIGHT_BG_GREY
+  openGreen: "#E8F5EC", // brand.py OPEN gate tint
+} as const;
+
+// Banner tone — full-width inverted banners
+export const bannerTone = {
+  red: { bg: "#B91C1C", text: "#FFFFFF" }, // brand.py GATE_CLOSED / FLAG_STOP
+  amber: { bg: "#D97706", text: "#FFFFFF" }, // brand.py GATE_CONDITIONAL
+  navy: { bg: "#03045E", text: "#FFFFFF" }, // brand.py BRAND_NAVY
+} as const;
+
+/**
+ * Returns the theme accent color at position `i`, wrapping around the palette.
+ * Handles negative indices with correct modulo semantics.
+ * This is the canonical helper — Slice D will migrate playbookThemeAccentColor to delegate here.
+ */
+export const themeAccentByIndex = (i: number): string => {
+  const len = themePalette.length;
+  return themePalette[((i % len) + len) % len];
+};

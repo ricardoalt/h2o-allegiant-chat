@@ -1,7 +1,17 @@
 import { Document, Page, renderToBuffer, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { AnalyticalReadPayload } from "../payloads";
 import { artifactLabels, h2oBrand } from "./brand-tokens";
-import { CoverBlock, Footer, InsightBox, SectionHeader } from "./shared-document";
+import {
+  DataTable,
+  EvidenceAnchorInline,
+  FlagListItem,
+  Footer,
+  InsightBox,
+  MinimalContinuationHeader,
+  MinimalHeader,
+  SectionHeader,
+  StatusBanner,
+} from "./shared-document";
 
 // ─── Pure helpers (testable, no React) ───────────────────────────────────────
 
@@ -21,6 +31,63 @@ export const collectTableHeaders = (rows: Array<Record<string, string>>): string
   }
   return Array.from(seen.keys());
 };
+
+type SharedFlagSeverity = "stop" | "specialist" | "attention" | "clear";
+
+export const analyticalFlagSeverity = (raw: string): SharedFlagSeverity => {
+  const normalized = raw.toLowerCase().replace(/[^a-z]+/g, " ");
+  if (normalized.includes("stop")) {
+    return "stop";
+  }
+  if (normalized.includes("specialist")) {
+    return "specialist";
+  }
+  if (normalized.includes("clear")) {
+    return "clear";
+  }
+  return "attention";
+};
+
+export const costConfidenceColor = (tier: string): string => {
+  const normalized = tier.toUpperCase();
+  if (normalized.includes("HIGH")) {
+    return h2oBrand.colors.navy;
+  }
+  if (normalized.includes("MEDIUM")) {
+    return h2oBrand.colors.amber;
+  }
+  if (normalized.includes("LOW")) {
+    return h2oBrand.colors.red;
+  }
+  return h2oBrand.colors.muted;
+};
+
+export const shouldRenderAnalyticalBanners = ({
+  gateState,
+  flags,
+}: {
+  gateState?: string;
+  flags?: Array<{ id: string; severity: string; evidence: string }>;
+}): { gate: boolean; compliance: boolean } => ({
+  gate: Boolean(gateState),
+  compliance: Boolean(flags?.length),
+});
+
+const dataTableColumnsFor = (rows: Array<Record<string, string>>, width = 450) => {
+  const headers = collectTableHeaders(rows);
+  const flexBasis = Math.floor(width / Math.max(headers.length, 1));
+  return headers.map((header) => ({ key: header, header, flexBasis }));
+};
+
+const subStreamLensRows = (rows: NonNullable<AnalyticalReadPayload["subStreamLens"]>) =>
+  rows.map((row) => ({
+    "Sub-stream": row.subStream,
+    "Active condition": row.activeCondition,
+    Evidence: row.evidenceAnchor,
+  }));
+
+const stageGapRows = (rows: NonNullable<AnalyticalReadPayload["stageGapAnalysis"]>) =>
+  rows.map((row) => ({ Required: row.required, Status: row.status, Source: row.source }));
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +109,14 @@ const styles = StyleSheet.create({
     lineHeight: 1.18,
     marginBottom: 3,
   },
+  tableSectionTitle: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 8,
+    marginBottom: 3,
+    marginTop: 2,
+    textTransform: "uppercase",
+  },
   tagRow: {
     display: "flex",
     flexDirection: "row",
@@ -62,28 +137,23 @@ const styles = StyleSheet.create({
     paddingVertical: 1.5,
     textTransform: "uppercase",
   },
-  table: {
+  costTable: {
     borderColor: h2oBrand.colors.line,
     borderWidth: 0.5,
+    marginBottom: 7,
     marginTop: 4,
   },
-  tableRow: {
+  costRow: {
     borderTopColor: h2oBrand.colors.line,
     borderTopWidth: 0.5,
     display: "flex",
     flexDirection: "row",
   },
-  tableHeaderRow: {
+  costHeaderRow: {
     backgroundColor: h2oBrand.colors.panel,
     borderTopWidth: 0,
-    borderBottomColor: h2oBrand.colors.navy,
-    borderBottomWidth: 0.8,
   },
-  tableHeaderCell: {
-    color: h2oBrand.colors.navy,
-    fontFamily: h2oBrand.font.bold,
-  },
-  tableCell: {
+  costCell: {
     borderRightColor: h2oBrand.colors.line,
     borderRightWidth: 0.5,
     flex: 1,
@@ -92,90 +162,171 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 3,
   },
+  costHeaderCell: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+  },
+  costConfidenceCell: {
+    fontFamily: h2oBrand.font.bold,
+    textTransform: "uppercase",
+  },
 });
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
-const SectionTable = ({ rows }: { rows: Array<Record<string, string>> }) => {
-  const headers = collectTableHeaders(rows);
-  if (!headers.length) {
+const TableBlock = ({ title, rows }: { title: string; rows: Array<Record<string, string>> }) => {
+  if (!rows.length) {
     return null;
   }
   return (
-    <View style={styles.table}>
-      <View style={[styles.tableRow, styles.tableHeaderRow]}>
-        {headers.map((header, index) => (
-          <Text
-            key={header}
-            style={[
-              styles.tableCell,
-              styles.tableHeaderCell,
-              index === headers.length - 1 ? { borderRightWidth: 0 } : {},
-            ]}
-          >
-            {header}
-          </Text>
-        ))}
-      </View>
-      {rows.map((row, rowIndex) => (
-        <View
-          key={`row-${rowIndex}-${headers.map((h) => row[h] ?? "").join("|")}`}
-          style={styles.tableRow}
-        >
-          {headers.map((header, colIndex) => (
-            <Text
-              key={header}
-              style={[
-                styles.tableCell,
-                colIndex === headers.length - 1 ? { borderRightWidth: 0 } : {},
-              ]}
-            >
-              {row[header] ?? ""}
-            </Text>
-          ))}
-        </View>
-      ))}
+    <View style={styles.section}>
+      <Text style={styles.tableSectionTitle}>{title}</Text>
+      <DataTable columns={dataTableColumnsFor(rows)} rows={rows} headerStyle="navy-light" />
     </View>
   );
 };
 
-export const AnalyticalReadDocument = ({ payload }: { payload: AnalyticalReadPayload }) => (
-  <Document
-    author="SecondstreamAI"
-    subject="H2O Allegiant Analytical Read"
-    title={`${payload.customer.name} Analytical Read`}
-  >
-    <Page size={h2oBrand.page.size} style={styles.page}>
-      <CoverBlock
-        artifactLabel={artifactLabels.analyticalRead}
-        customerName={payload.title ?? `${payload.customer.name} Analytical Read`}
-        location={payload.customer.location}
-        stage="Record"
-      />
-      <View style={styles.section}>
-        <SectionHeader color={analyticalSectionDefaultColor()}>Summary</SectionHeader>
-        <InsightBox>{payload.summary}</InsightBox>
-      </View>
-      {payload.sections.map((section) => (
-        <View key={section.heading} style={styles.section}>
-          <SectionHeader color={analyticalSectionDefaultColor()}>{section.heading}</SectionHeader>
-          <Text style={styles.body}>{section.body}</Text>
-          {section.evidenceTags?.length ? (
-            <View style={styles.tagRow}>
-              {section.evidenceTags.map((tag) => (
-                <Text key={tag} style={styles.tag}>
-                  {tag}
-                </Text>
-              ))}
-            </View>
-          ) : null}
-          {section.table?.length ? <SectionTable rows={section.table} /> : null}
+const CostRowsTable = ({ rows }: { rows: NonNullable<AnalyticalReadPayload["costRows"]> }) => {
+  if (!rows.length) {
+    return null;
+  }
+  return (
+    <View style={styles.section}>
+      <Text style={styles.tableSectionTitle}>Cost of alternative</Text>
+      <View style={styles.costTable}>
+        <View style={[styles.costRow, styles.costHeaderRow]}>
+          <Text style={[styles.costCell, styles.costHeaderCell]}>Row</Text>
+          <Text style={[styles.costCell, styles.costHeaderCell]}>Basis</Text>
+          <Text style={[styles.costCell, styles.costHeaderCell, { borderRightWidth: 0 }]}>
+            Confidence
+          </Text>
         </View>
-      ))}
-      <Footer label="H2O Allegiant Analytical Read" />
-    </Page>
-  </Document>
-);
+        {rows.map((row) => (
+          <View key={`${row.row}-${row.basis}`} style={styles.costRow}>
+            <Text style={styles.costCell}>{row.row}</Text>
+            <Text style={styles.costCell}>{row.basis}</Text>
+            <Text
+              style={[
+                styles.costCell,
+                styles.costConfidenceCell,
+                { borderRightWidth: 0, color: costConfidenceColor(row.confidence) },
+              ]}
+            >
+              {row.confidence}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+export const AnalyticalReadDocument = ({ payload }: { payload: AnalyticalReadPayload }) => {
+  const banners = shouldRenderAnalyticalBanners(payload);
+  const legacySectionTables = payload.sections.flatMap((section) => section.table ?? []);
+
+  return (
+    <Document
+      author="SecondstreamAI"
+      subject="H2O Allegiant Analytical Read"
+      title={`${payload.customer.name} Analytical Read`}
+    >
+      <Page size={h2oBrand.page.size} style={styles.page}>
+        <View
+          fixed
+          render={({ pageNumber }) =>
+            pageNumber === 1 ? null : (
+              <MinimalContinuationHeader
+                customerName={payload.customer.name}
+                site={payload.customer.location}
+                artifactLabel="Analytical Read"
+                pageNumber={pageNumber}
+              />
+            )
+          }
+        />
+        <MinimalHeader
+          customerName={payload.customer.name}
+          site={payload.customer.location}
+          county={payload.customer.county ?? ""}
+          state={payload.customer.state ?? ""}
+          basin={payload.customer.basin}
+          date=""
+          artifactLabel={artifactLabels.analyticalRead}
+        />
+        {banners.gate ? (
+          <StatusBanner
+            severity="open"
+            label="QUALIFICATION GATE"
+            body={payload.gateContent ?? payload.gateState}
+          />
+        ) : null}
+        {banners.compliance ? (
+          <StatusBanner severity="stop" label="COMPLIANCE & SAFETY">
+            {payload.flags?.map((flag) => (
+              <FlagListItem
+                key={flag.id}
+                id={flag.id}
+                severity={analyticalFlagSeverity(flag.severity)}
+                evidence={flag.evidence}
+                status={flag.status}
+              />
+            ))}
+          </StatusBanner>
+        ) : null}
+        <View style={styles.section}>
+          <SectionHeader color={analyticalSectionDefaultColor()}>Summary</SectionHeader>
+          <InsightBox>{payload.summary}</InsightBox>
+        </View>
+        {payload.subStreamLens?.length ? (
+          <TableBlock title="Sub-stream lens" rows={subStreamLensRows(payload.subStreamLens)} />
+        ) : null}
+        {payload.flags?.length ? (
+          <TableBlock
+            title="Active flag inventory"
+            rows={payload.flags.map((flag) => ({
+              ID: flag.id,
+              Severity: flag.severity,
+              Evidence: flag.evidence,
+              Status: flag.status ?? "",
+            }))}
+          />
+        ) : null}
+        {payload.stageGapAnalysis?.length ? (
+          <TableBlock title="Stage gap analysis" rows={stageGapRows(payload.stageGapAnalysis)} />
+        ) : null}
+        {payload.costRows?.length ? <CostRowsTable rows={payload.costRows} /> : null}
+        {payload.sections.map((section) => (
+          <View key={section.heading} style={styles.section}>
+            <SectionHeader color={analyticalSectionDefaultColor()}>{section.heading}</SectionHeader>
+            <Text style={styles.body}>
+              {section.body}
+              {section.evidenceSource ? (
+                <>
+                  {" "}
+                  <EvidenceAnchorInline id={section.evidenceSource} />
+                </>
+              ) : null}
+            </Text>
+            {section.evidenceTags?.length ? (
+              <View style={styles.tagRow}>
+                {section.evidenceTags.map((tag) => (
+                  <Text key={tag} style={styles.tag}>
+                    {tag}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ))}
+        {legacySectionTables.length ? (
+          <TableBlock title="Legacy evidence table" rows={legacySectionTables} />
+        ) : null}
+        <Footer />
+      </Page>
+    </Document>
+  );
+};
 
 export const renderAnalyticalReadPdf = async (payload: AnalyticalReadPayload): Promise<Buffer> =>
   renderToBuffer(<AnalyticalReadDocument payload={payload} />);

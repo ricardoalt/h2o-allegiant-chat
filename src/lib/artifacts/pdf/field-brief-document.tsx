@@ -1,14 +1,7 @@
 import { Document, Page, renderToBuffer, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { FieldBriefPayload } from "../payloads";
-import { artifactLabels, h2oBrand } from "./brand-tokens";
-import {
-  CoverBlock,
-  Footer,
-  InsightBox,
-  LogoMark,
-  SectionHeader,
-  StageBadge,
-} from "./shared-document";
+import { h2oBrand } from "./brand-tokens";
+import { Footer, InsightBox, LogoMark, SectionHeader, StageBadge } from "./shared-document";
 
 const styles = StyleSheet.create({
   page: {
@@ -81,10 +74,10 @@ const styles = StyleSheet.create({
     display: "flex",
     flexDirection: "row",
   },
-  tableHeader: {
-    backgroundColor: h2oBrand.colors.panel,
-    borderBottomColor: h2oBrand.colors.navy,
-    borderBottomWidth: 0.8,
+  // Plain text header — no background panel, no navy border (R6)
+  tableHeaderPlain: {
+    borderBottomColor: h2oBrand.colors.line,
+    borderBottomWidth: 0.5,
   },
   tableTotal: {
     backgroundColor: h2oBrand.colors.panelBlue,
@@ -105,6 +98,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0.5,
     width: "35%",
   },
+  // Plain column header text — navy bold, no inverted background
   headerText: {
     color: h2oBrand.colors.navy,
     fontFamily: h2oBrand.font.bold,
@@ -119,24 +113,20 @@ const styles = StyleSheet.create({
   totalPositive: {
     color: h2oBrand.colors.green,
   },
-  riskCard: {
+  // Shared card row layout — risk and action cards both use flat numeral pattern (R6)
+  cardRow: {
     display: "flex",
     flexDirection: "row",
     gap: 6,
     marginBottom: 5,
-    paddingTop: 0,
   },
-  rankBadge: {
-    alignItems: "center",
-    borderRadius: 999,
-    height: 19,
-    justifyContent: "center",
-    width: 19,
-  },
-  rankBadgeText: {
-    color: h2oBrand.colors.white,
+  // Flat numeral — large navy, no background, no border (R6: replaces circle + rounded box)
+  flatNumeral: {
+    color: h2oBrand.colors.navy,
     fontFamily: h2oBrand.font.bold,
-    fontSize: 9.5,
+    fontSize: 14,
+    lineHeight: 1.0,
+    width: 16,
   },
   cardContent: {
     flex: 1,
@@ -147,30 +137,24 @@ const styles = StyleSheet.create({
     fontSize: 8.6,
     marginBottom: 1,
   },
+  // Italic colored body line for risk mechanism (R6)
+  // @react-pdf base fonts: use "Helvetica-Oblique" for italic (not fontStyle on Helvetica)
+  riskMechanism: {
+    fontFamily: "Helvetica-Oblique",
+    fontSize: 8.2,
+    lineHeight: 1.18,
+    marginBottom: 2,
+  },
   mitigation: {
     color: h2oBrand.colors.muted,
     fontSize: 7.5,
     fontStyle: "italic",
     lineHeight: 1.12,
   },
-  actionCard: {
-    display: "flex",
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: 5,
-    paddingTop: 0,
-  },
-  actionNumber: {
-    alignItems: "center",
-    backgroundColor: h2oBrand.colors.blue,
-    borderRadius: 4,
-    height: 19,
-    justifyContent: "center",
-    width: 19,
-  },
+  // Italic timeframe for action cards (R6)
   timeframe: {
     color: h2oBrand.colors.blue,
-    fontFamily: h2oBrand.font.bold,
+    fontFamily: "Helvetica-Oblique",
   },
   stopFlag: {
     borderColor: h2oBrand.colors.red,
@@ -182,6 +166,47 @@ const styles = StyleSheet.create({
   muted: {
     color: h2oBrand.colors.muted,
     fontSize: 7.5,
+  },
+  // R6: italic sensitivity caption under cost table total
+  sensitivityCaption: {
+    color: h2oBrand.colors.muted,
+    fontFamily: "Helvetica-Oblique",
+    fontSize: 7.5,
+  },
+  // Narrative risk callout block (R6, Option A)
+  narrativeCallout: {
+    marginBottom: 6,
+  },
+  narrativeCalloutItem: {
+    fontSize: 8.2,
+    lineHeight: 1.2,
+    marginBottom: 3,
+  },
+  // R3: Field Brief cover block (local — avoids modifying shared-document.tsx in Slice C)
+  cover: {
+    marginBottom: 10,
+  },
+  coverTop: {
+    alignItems: "center",
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  coverTitle: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 15,
+    lineHeight: 1.04,
+    marginBottom: 1,
+  },
+  coverMetadata: {
+    borderBottomColor: h2oBrand.colors.line,
+    borderBottomWidth: 1,
+    color: h2oBrand.colors.muted,
+    fontSize: 7.5,
+    lineHeight: 1.15,
+    paddingBottom: 3,
   },
 });
 
@@ -232,6 +257,76 @@ export const costRowStyleRole = ({
   return "total-label";
 };
 
+/**
+ * Builds the Field Brief H1 title (R3).
+ * Format: `{customer.name} — {customer.location}` when location is present;
+ * falls back to `{customer.name}` when location is absent or empty (R11 backward compat).
+ */
+export const buildFieldBriefTitle = ({
+  name,
+  location,
+}: {
+  name: string;
+  location?: string;
+}): string => {
+  if (location && location.trim().length > 0) {
+    return `${name} — ${location}`;
+  }
+  return name;
+};
+
+/**
+ * Builds the Field Brief header metadata line.
+ * Format: `{County}, {State} ({Basin})? · {Date}? · Field Brief · Internal handover`
+ * County+state are omitted silently when either is absent (R11 backward compat).
+ * Basin parenthetical is omitted when basin is absent.
+ */
+export const buildFieldBriefMetadataLine = ({
+  county,
+  state,
+  basin,
+  date,
+}: {
+  county?: string;
+  state?: string;
+  basin?: string;
+  date?: string;
+}): string => {
+  const parts: string[] = [];
+
+  if (county && state) {
+    const location = basin ? `${county}, ${state} (${basin})` : `${county}, ${state}`;
+    parts.push(location);
+  }
+
+  if (date) parts.push(date);
+  parts.push("Field Brief");
+  parts.push("Internal handover");
+
+  return parts.join(" · ");
+};
+
+/**
+ * Determines how to render stop flags/narrative risk callouts (design §4 Option A).
+ *
+ * | narrativeRiskCallouts | stopFlags       | result      |
+ * |-----------------------|-----------------|-------------|
+ * | non-empty array       | any             | 'narrative' |
+ * | absent / empty        | non-empty array | 'blocks'    |
+ * | absent / empty        | absent / empty  | 'none'      |
+ */
+export const chooseStopFlagPresentation = ({
+  narrativeRiskCallouts,
+  stopFlags,
+}: {
+  narrativeRiskCallouts?: string[];
+  stopFlags?: Array<{ title: string; summary: string }>;
+}): "narrative" | "blocks" | "none" => {
+  if (narrativeRiskCallouts && narrativeRiskCallouts.length > 0) return "narrative";
+  if (stopFlags && stopFlags.length > 0) return "blocks";
+  return "none";
+};
+
 const costCellStyle = (column: CostColumn, isTotal?: boolean) => {
   const role = costRowStyleRole({ column, isTotal });
   const widthStyle = column === "component" ? styles.componentCell : styles.pathCell;
@@ -248,6 +343,27 @@ const costCellStyle = (column: CostColumn, isTotal?: boolean) => {
   return [styles.tableCell, widthStyle];
 };
 
+// R3: Local cover block — H1 = "{Customer} — {Site}", small logo, metadata from helper
+// Using LogoMark + StageBadge from shared-document; local styles to avoid Slice A territory.
+const FieldBriefCover = ({
+  title,
+  metadataLine,
+  stage,
+}: {
+  title: string;
+  metadataLine: string;
+  stage: string;
+}) => (
+  <View style={styles.cover}>
+    <View style={styles.coverTop}>
+      <LogoMark size="sm" />
+      <StageBadge stage={stage} />
+    </View>
+    <Text style={styles.coverTitle}>{title}</Text>
+    <Text style={styles.coverMetadata}>{metadataLine}</Text>
+  </View>
+);
+
 const Bullet = ({ lead, body }: { lead: string; body: string }) => (
   <View style={styles.bullet}>
     <Text style={styles.bulletDot}>•</Text>
@@ -258,9 +374,10 @@ const Bullet = ({ lead, body }: { lead: string; body: string }) => (
   </View>
 );
 
+// R6: Plain text column headers, thin row separators, bold last-row total + italic sensitivity
 const CostTable = ({ rows }: { rows: CostRows }) => (
   <View style={styles.table}>
-    <View style={[styles.tableRow, styles.tableHeader]}>
+    <View style={[styles.tableRow, styles.tableHeaderPlain]}>
       <Text style={[styles.tableCell, styles.componentCell, styles.headerText]}>
         Cost component
       </Text>
@@ -296,14 +413,29 @@ const StopFlags = ({ flags }: { flags: NonNullable<FieldBriefPayload["stopFlags"
   );
 };
 
+// R6, Option A: inline prose narrative risk callouts (suppress stopFlags when populated)
+const NarrativeCallouts = ({ callouts }: { callouts: string[] }) => (
+  <View style={styles.narrativeCallout}>
+    <SectionHeader color={sectionMarkerColor("what-could-kill-it")}>Risk context</SectionHeader>
+    {callouts.map((item, i) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: narrative items have no stable key
+      <Text key={i} style={styles.narrativeCalloutItem}>
+        {item}
+      </Text>
+    ))}
+  </View>
+);
+
+// R5: Continuation header retains logo (small) + customer + "Field Brief (continued)" + stage badge
 const ContinuationHeader = ({ customerName, stage }: { customerName: string; stage: string }) => (
   <View fixed style={styles.continuationHeader}>
-    <LogoMark />
+    <LogoMark size="sm" />
     <Text style={styles.continuationMiddle}>{fieldBriefContinuationLabel(customerName)}</Text>
     <StageBadge stage={stage} />
   </View>
 );
 
+// R6: Risk card with flat numeral (no circle), bold title, italic colored mechanism, italic muted mitigation
 const RiskCard = ({
   rank,
   risk,
@@ -311,18 +443,17 @@ const RiskCard = ({
   rank: number;
   risk: FieldBriefPayload["sections"]["whatCouldKillIt"]["risks"][number];
 }) => (
-  <View style={styles.riskCard} wrap={false}>
-    <View style={[styles.rankBadge, { backgroundColor: riskRankColor(rank) }]}>
-      <Text style={styles.rankBadgeText}>{rank}</Text>
-    </View>
+  <View style={styles.cardRow} wrap={false}>
+    <Text style={styles.flatNumeral}>{rank}</Text>
     <View style={styles.cardContent}>
       <Text style={styles.cardTitle}>{risk.name}</Text>
-      <Text style={styles.body}>{risk.mechanism}</Text>
+      <Text style={[styles.riskMechanism, { color: riskRankColor(rank) }]}>{risk.mechanism}</Text>
       <Text style={styles.mitigation}>Mitigation: {risk.mitigation}</Text>
     </View>
   </View>
 );
 
+// R6: Action card with flat numeral (no rounded box), bold title, italic timeframe, body paragraph
 const ActionCard = ({
   action,
   index,
@@ -330,15 +461,13 @@ const ActionCard = ({
   action: FieldBriefPayload["sections"]["doThisNext"]["actions"][number];
   index: number;
 }) => (
-  <View style={styles.actionCard} wrap={false}>
-    <View style={styles.actionNumber}>
-      <Text style={styles.rankBadgeText}>{index + 1}</Text>
-    </View>
+  <View style={styles.cardRow} wrap={false}>
+    <Text style={styles.flatNumeral}>{index + 1}</Text>
     <View style={styles.cardContent}>
       <Text style={styles.cardTitle}>
         {action.title} <Text style={styles.timeframe}>· {action.timeframe}</Text>
       </Text>
-      <Text>{action.body}</Text>
+      <Text style={styles.body}>{action.body}</Text>
     </View>
   </View>
 );
@@ -349,6 +478,26 @@ export const FieldBriefDocument = ({ payload }: { payload: FieldBriefPayload }) 
   const actions = payload.sections.doThisNext.actions;
   const { pageOneRows, pageTwoRows } = splitCostRowsForTwoPageBrief(proposal.costOfAlternativeRows);
 
+  // R3: H1 = `{customer.name} — {customer.location}` with name-only fallback
+  const title = buildFieldBriefTitle({
+    name: payload.customer.name,
+    location: payload.customer.location,
+  });
+
+  // R3: Metadata line via pure helper
+  const metadataLine = buildFieldBriefMetadataLine({
+    county: payload.customer.county,
+    state: payload.customer.state,
+    basin: payload.customer.basin,
+    date: payload.date,
+  });
+
+  // R6, Option A: choose stop-flag presentation mode
+  const stopFlagMode = chooseStopFlagPresentation({
+    narrativeRiskCallouts: payload.narrativeRiskCallouts,
+    stopFlags: payload.stopFlags,
+  });
+
   return (
     <Document
       author="SecondstreamAI"
@@ -356,14 +505,14 @@ export const FieldBriefDocument = ({ payload }: { payload: FieldBriefPayload }) 
       title={`${payload.customer.name} Field Brief`}
     >
       <Page size={h2oBrand.page.size} style={styles.page}>
-        <CoverBlock
-          artifactLabel={artifactLabels.fieldBrief}
-          customerName={`${payload.customer.name} Field Brief`}
-          date={payload.date}
-          location={payload.customer.location}
-          stage={payload.stage}
-        />
-        <StopFlags flags={payload.stopFlags ?? []} />
+        {/* R3: FieldBriefCover — H1 = customer name only, small logo, metadata from helper */}
+        <FieldBriefCover title={title} metadataLine={metadataLine} stage={payload.stage} />
+
+        {/* R6, Option A: narrative callouts woven between "What this is" and "What we'd propose" */}
+        {stopFlagMode === "narrative" && payload.narrativeRiskCallouts ? (
+          <NarrativeCallouts callouts={payload.narrativeRiskCallouts} />
+        ) : null}
+        {stopFlagMode === "blocks" ? <StopFlags flags={payload.stopFlags ?? []} /> : null}
 
         <View style={styles.section}>
           <SectionHeader color={sectionMarkerColor("what-this-is")}>What this is</SectionHeader>
@@ -387,12 +536,13 @@ export const FieldBriefDocument = ({ payload }: { payload: FieldBriefPayload }) 
           <Text style={styles.subhead}>Cost of the alternative — fully priced over 5 years</Text>
           <CostTable rows={pageOneRows} />
           {proposal.dealSizeSensitivity && !pageTwoRows.length ? (
-            <Text style={[styles.body, styles.muted]}>
+            <Text style={styles.sensitivityCaption}>
               Sensitivity: {proposal.dealSizeSensitivity}
             </Text>
           ) : null}
         </View>
-        <Footer label="H2O Allegiant Field Brief" />
+        {/* R4: Footer text-only, no label prop */}
+        <Footer />
       </Page>
 
       <Page size={h2oBrand.page.size} style={[styles.page, styles.pageWithContinuation]}>
@@ -401,7 +551,7 @@ export const FieldBriefDocument = ({ payload }: { payload: FieldBriefPayload }) 
           <View style={styles.section}>
             <CostTable rows={pageTwoRows} />
             {proposal.dealSizeSensitivity ? (
-              <Text style={[styles.body, styles.muted]}>
+              <Text style={styles.sensitivityCaption}>
                 Sensitivity: {proposal.dealSizeSensitivity}
               </Text>
             ) : null}
@@ -424,7 +574,8 @@ export const FieldBriefDocument = ({ payload }: { payload: FieldBriefPayload }) 
             <ActionCard key={action.title} action={action} index={index} />
           ))}
         </View>
-        <Footer label="H2O Allegiant Field Brief" />
+        {/* R4: Footer text-only, no label prop */}
+        <Footer />
       </Page>
     </Document>
   );

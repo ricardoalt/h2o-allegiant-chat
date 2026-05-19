@@ -1,16 +1,51 @@
 import { Document, Page, renderToBuffer, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ProposalShellPayload } from "../payloads";
-import { artifactLabels, h2oBrand } from "./brand-tokens";
-import { CoverBlock, Footer, SectionHeader } from "./shared-document";
+import { h2oBrand } from "./brand-tokens";
+import {
+  DataTable,
+  Footer,
+  FullWidthBanner,
+  KVTable,
+  MinimalContinuationHeader,
+  MinimalHeader,
+  SectionHeader,
+} from "./shared-document";
 
 // ─── Pure helpers (testable, no React) ───────────────────────────────────────
 
-export const proposalCommitBorderColor = (
-  type: "commitTo" | "doNotCommitYet",
-): string => (type === "commitTo" ? h2oBrand.colors.green : h2oBrand.colors.amber);
+export const proposalCommitBorderColor = (type: "commitTo" | "doNotCommitYet"): string =>
+  type === "commitTo" ? h2oBrand.colors.green : h2oBrand.colors.amber;
 
 /** Returns the left-accent bar color for the executive summary block. */
 export const proposalExecSummaryAccentColor = (): string => h2oBrand.colors.blue;
+
+export const proposalBannerDefaultsToTrue = (field?: boolean): boolean => field !== false;
+
+export const PROPOSAL_TOP_BANNER_TEXT =
+  "DRAFT INTENT — STAGE: LEAD · THIS IS NOT A CUSTOMER-FACING DRAFT";
+
+export const PROPOSAL_BOTTOM_BANNER_TEXT =
+  "Treat this document as Internal scoping intent only. Refresh at every stage advance.";
+
+export const buildGatesToCloseColumns = (rows: Array<Record<string, string>>) => {
+  const keys = Object.keys(rows[0] ?? {});
+  if (!keys.length) {
+    return [];
+  }
+  const flexBasis = Math.floor(450 / keys.length);
+  return keys.map((key) => ({ key, header: key, flexBasis }));
+};
+
+type ProposalTypedCommitment = NonNullable<ProposalShellPayload["commitmentsTyped"]>[number];
+
+export const shouldRenderTypedCommitments = (
+  commitments?: ProposalShellPayload["commitmentsTyped"],
+): boolean => Boolean(commitments?.length);
+
+export const proposalCommitmentMetaLine = (
+  commitment: Pick<ProposalTypedCommitment, "date" | "owner">,
+): string | undefined =>
+  [commitment.date, commitment.owner].filter(Boolean).join(" · ") || undefined;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +111,26 @@ const styles = StyleSheet.create({
     fontSize: 8.2,
     lineHeight: 1.15,
   },
+  statusBody: {
+    fontSize: 8.2,
+    lineHeight: 1.16,
+    marginBottom: 4,
+  },
+  outOfScopeItem: {
+    marginBottom: 4,
+  },
+  outOfScopeHeading: {
+    color: h2oBrand.colors.navy,
+    fontFamily: h2oBrand.font.bold,
+    fontSize: 8.1,
+    marginBottom: 1,
+  },
+  commitmentMeta: {
+    color: h2oBrand.colors.muted,
+    fontFamily: "Helvetica-Oblique",
+    fontSize: 7,
+    marginTop: 1,
+  },
   // Commit cards — tighter internal spacing
   commitGrid: {
     display: "flex",
@@ -111,9 +166,26 @@ const BulletList = ({ items }: { items: string[] }) => (
   </View>
 );
 
+const TypedCommitments = ({ items }: { items: ProposalTypedCommitment[] }) => (
+  <View style={styles.commitGrid}>
+    {items.map((item) => {
+      const meta = proposalCommitmentMetaLine(item);
+      return (
+        <View key={`${item.label}-${item.text}`} style={styles.commitCard}>
+          <Text style={styles.commitTitle}>{item.label}</Text>
+          <Text style={styles.bulletText}>{item.text}</Text>
+          {meta ? <Text style={styles.commitmentMeta}>{meta}</Text> : null}
+        </View>
+      );
+    })}
+  </View>
+);
+
 export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPayload }) => {
   const commitTo = payload.commitments.commitTo ?? [];
   const doNotCommit = payload.commitments.doNotCommitYet ?? [];
+  const typedCommitments = payload.commitmentsTyped ?? [];
+  const gatesColumns = buildGatesToCloseColumns(payload.gatesToClose ?? []);
   return (
     <Document
       author="SecondstreamAI"
@@ -121,61 +193,127 @@ export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPaylo
       title={`${payload.customer.name} Proposal Shell`}
     >
       <Page size={h2oBrand.page.size} style={styles.page}>
-        <CoverBlock
-          artifactLabel={artifactLabels.proposalShell}
-          customerName={payload.title ?? `${payload.customer.name} Proposal Shell`}
-          location={payload.customer.location}
-          stage="Propose"
+        <View
+          fixed
+          render={({ pageNumber }) =>
+            pageNumber === 1 ? null : (
+              <MinimalContinuationHeader
+                artifactLabel="Proposal Shell"
+                customerName={payload.customer.name}
+                site={payload.customer.location}
+              />
+            )
+          }
         />
+        <MinimalHeader
+          artifactLabel="Proposal Shell"
+          basin={payload.customer.basin}
+          county={payload.customer.county ?? ""}
+          customerName={payload.customer.name}
+          date=""
+          site={payload.customer.location}
+          state={payload.customer.state ?? ""}
+        />
+        {proposalBannerDefaultsToTrue(payload.draftIntentBanner) ? (
+          <FullWidthBanner tone="red" text={PROPOSAL_TOP_BANNER_TEXT} />
+        ) : null}
         <View style={styles.section}>
           <SectionHeader color={proposalExecSummaryAccentColor()}>Executive summary</SectionHeader>
           <Text style={styles.execSummaryBlock}>{payload.executiveSummary}</Text>
         </View>
+        {payload.statusOfDocument ? (
+          <View style={styles.section}>
+            <SectionHeader color={h2oBrand.colors.navy}>Status of this document</SectionHeader>
+            <Text style={styles.statusBody}>{payload.statusOfDocument}</Text>
+          </View>
+        ) : null}
+        {payload.workPackages?.length ? (
+          <View style={styles.section}>
+            <SectionHeader color={h2oBrand.colors.navy}>Work packages</SectionHeader>
+            <DataTable
+              columns={[
+                { key: "name", header: "Work package", flexBasis: 200 },
+                { key: "outcome", header: "Outcome / deliverable", flexBasis: 250 },
+              ]}
+              headerStyle="navy-dark"
+              rows={payload.workPackages.map((row) => ({ name: row.name, outcome: row.outcome }))}
+            />
+          </View>
+        ) : null}
         <View style={styles.section}>
           <SectionHeader color={h2oBrand.colors.green}>Proposed scope</SectionHeader>
           <BulletList items={payload.proposedScope} />
         </View>
         <View style={styles.section}>
           <SectionHeader color={h2oBrand.colors.navy}>Sizing and pricing</SectionHeader>
-          <Text style={styles.body}>{payload.sizingAndPricing}</Text>
+          {payload.sizingRows?.length ? (
+            <KVTable rows={payload.sizingRows} />
+          ) : (
+            <Text style={styles.body}>{payload.sizingAndPricing}</Text>
+          )}
         </View>
         <View style={styles.section}>
           <SectionHeader color={h2oBrand.colors.navy}>Schedule</SectionHeader>
           <Text style={styles.body}>{payload.schedule}</Text>
         </View>
-        {commitTo.length || doNotCommit.length ? (
+        {payload.outOfScope?.length ? (
+          <View style={styles.section}>
+            <SectionHeader color={h2oBrand.colors.navy}>Out of scope</SectionHeader>
+            {payload.outOfScope.map((item) => (
+              <View key={item.heading} style={styles.outOfScopeItem}>
+                <Text style={styles.outOfScopeHeading}>{item.heading}</Text>
+                <Text style={styles.body}>{item.body}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {payload.gatesToClose?.length ? (
+          <View style={styles.section}>
+            <SectionHeader color={h2oBrand.colors.navy}>Gates to close</SectionHeader>
+            <DataTable
+              columns={gatesColumns}
+              headerStyle="navy-light"
+              rows={payload.gatesToClose}
+            />
+          </View>
+        ) : null}
+        {shouldRenderTypedCommitments(typedCommitments) || commitTo.length || doNotCommit.length ? (
           <View style={styles.section} wrap={false}>
             <SectionHeader color={h2oBrand.colors.navy}>Commitments</SectionHeader>
-            <View style={styles.commitGrid}>
-              {commitTo.length ? (
-                <View
-                  style={[
-                    styles.commitCard,
-                    {
-                      borderLeftColor: proposalCommitBorderColor("commitTo"),
-                      borderLeftWidth: 3,
-                    },
-                  ]}
-                >
-                  <Text style={styles.commitTitle}>Commit to</Text>
-                  <BulletList items={commitTo} />
-                </View>
-              ) : null}
-              {doNotCommit.length ? (
-                <View
-                  style={[
-                    styles.commitCard,
-                    {
-                      borderLeftColor: proposalCommitBorderColor("doNotCommitYet"),
-                      borderLeftWidth: 3,
-                    },
-                  ]}
-                >
-                  <Text style={styles.commitTitle}>Do not commit yet</Text>
-                  <BulletList items={doNotCommit} />
-                </View>
-              ) : null}
-            </View>
+            {shouldRenderTypedCommitments(typedCommitments) ? (
+              <TypedCommitments items={typedCommitments} />
+            ) : (
+              <View style={styles.commitGrid}>
+                {commitTo.length ? (
+                  <View
+                    style={[
+                      styles.commitCard,
+                      {
+                        borderLeftColor: proposalCommitBorderColor("commitTo"),
+                        borderLeftWidth: 3,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.commitTitle}>Commit to</Text>
+                    <BulletList items={commitTo} />
+                  </View>
+                ) : null}
+                {doNotCommit.length ? (
+                  <View
+                    style={[
+                      styles.commitCard,
+                      {
+                        borderLeftColor: proposalCommitBorderColor("doNotCommitYet"),
+                        borderLeftWidth: 3,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.commitTitle}>Do not commit yet</Text>
+                    <BulletList items={doNotCommit} />
+                  </View>
+                ) : null}
+              </View>
+            )}
           </View>
         ) : null}
         {payload.fundingPathway ? (
@@ -189,12 +327,24 @@ export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPaylo
         {payload.riskAllocation ? (
           <View style={styles.section}>
             <SectionHeader color={h2oBrand.colors.red}>Risk allocation</SectionHeader>
-            <View style={[styles.panelBlock, { borderColor: h2oBrand.colors.red, borderLeftWidth: 2, borderLeftColor: h2oBrand.colors.red }]}>
+            <View
+              style={[
+                styles.panelBlock,
+                {
+                  borderColor: h2oBrand.colors.red,
+                  borderLeftColor: h2oBrand.colors.red,
+                  borderLeftWidth: 2,
+                },
+              ]}
+            >
               <Text style={styles.panelBody}>{payload.riskAllocation}</Text>
             </View>
           </View>
         ) : null}
-        <Footer label="H2O Allegiant Proposal Shell" />
+        {proposalBannerDefaultsToTrue(payload.internalOnlyFooterBanner) ? (
+          <FullWidthBanner tone="red" text={PROPOSAL_BOTTOM_BANNER_TEXT} />
+        ) : null}
+        <Footer />
       </Page>
     </Document>
   );

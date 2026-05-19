@@ -429,6 +429,470 @@ describe("propagates render failure", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Slice B — Schema enrichment: RED tests (run before implementation)
+// All tests in this block validate new optional fields added in Slice B.
+// They must pass after schema changes and must not require renderer changes.
+// ---------------------------------------------------------------------------
+
+describe("fieldBriefInputSchema — Slice B additive fields", () => {
+  it("parses legacy payload without new fields (backward compat)", () => {
+    const result = fieldBriefInputSchema.safeParse(fieldBriefInput);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts customer.county, customer.state, customer.basin as optional strings", () => {
+    const input = {
+      ...fieldBriefInput,
+      customer: {
+        ...fieldBriefInput.customer,
+        county: "Lancaster",
+        state: "NE",
+        basin: "Platte River",
+      },
+    };
+    const result = fieldBriefInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.customer.county).toBe("Lancaster");
+      expect(result.data.customer.state).toBe("NE");
+      expect(result.data.customer.basin).toBe("Platte River");
+    }
+  });
+
+  it("accepts narrativeRiskCallouts as optional string array", () => {
+    const input = {
+      ...fieldBriefInput,
+      narrativeRiskCallouts: [
+        "Budget freeze risk is woven into the cost discussion above.",
+        "Regulatory delay risk addressed in proposed scope.",
+      ],
+    };
+    const result = fieldBriefInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.narrativeRiskCallouts).toHaveLength(2);
+    }
+  });
+
+  it("accepts payload with both stopFlags and narrativeRiskCallouts simultaneously", () => {
+    const input = {
+      ...fieldBriefInput,
+      stopFlags: [{ title: "Budget freeze", summary: "Capital window at risk." }],
+      narrativeRiskCallouts: ["Risk woven into prose."],
+    };
+    expect(fieldBriefInputSchema.safeParse(input).success).toBe(true);
+  });
+
+  it("omits customer.county/state/basin gracefully when absent", () => {
+    const result = fieldBriefInputSchema.safeParse(fieldBriefInput);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.customer.county).toBeUndefined();
+      expect(result.data.customer.state).toBeUndefined();
+      expect(result.data.customer.basin).toBeUndefined();
+      expect(result.data.narrativeRiskCallouts).toBeUndefined();
+    }
+  });
+});
+
+describe("playbookInputSchema — Slice B additive fields", () => {
+  it("parses legacy payload without new fields (backward compat)", () => {
+    const result = playbookInputSchema.safeParse(playbookInput);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts themes[].whyItMatters as optional string array per theme", () => {
+    const input = {
+      ...playbookInput,
+      themes: [
+        {
+          title: "Budget",
+          questions: ["Who owns capital approval?"],
+          whyItMatters: ["Unlocking capital is the rate-limiter.", "Board cycle is Q3."],
+        },
+      ],
+    };
+    const result = playbookInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.themes[0].whyItMatters).toHaveLength(2);
+    }
+  });
+
+  it("accepts themes[].accentIndex as optional non-negative integer", () => {
+    const input = {
+      ...playbookInput,
+      themes: [{ title: "Budget", questions: ["Who owns capital approval?"], accentIndex: 2 }],
+    };
+    const result = playbookInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.themes[0].accentIndex).toBe(2);
+    }
+  });
+
+  it("rejects themes[].accentIndex when negative", () => {
+    const input = {
+      ...playbookInput,
+      themes: [{ title: "Budget", questions: ["Who owns capital approval?"], accentIndex: -1 }],
+    };
+    expect(playbookInputSchema.safeParse(input).success).toBe(false);
+  });
+
+  it("accepts optional header object with subStreamsSummary, leadStageIntro, stageInsight", () => {
+    const input = {
+      ...playbookInput,
+      header: {
+        subStreamsSummary: "Budget · Decision Authority · NPDES Compliance",
+        leadStageIntro: "This playbook structures the first qualifying conversation.",
+        stageInsight: "Customer is at decision-readiness threshold; capital approval is the gate.",
+      },
+    };
+    const result = playbookInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.header?.subStreamsSummary).toBe(
+        "Budget · Decision Authority · NPDES Compliance",
+      );
+      expect(result.data.header?.leadStageIntro).toBeDefined();
+      expect(result.data.header?.stageInsight).toBeDefined();
+    }
+  });
+
+  it("accepts spec header names subStreams, stageIntro, insight", () => {
+    const input = {
+      ...playbookInput,
+      header: {
+        subStreams: ["Budget", "Decision Authority", "NPDES Compliance"],
+        stageIntro: "This playbook structures the first qualifying conversation.",
+        insight: "Customer is at decision-readiness threshold; capital approval is the gate.",
+      },
+    };
+    const result = playbookInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.header?.subStreams).toEqual([
+        "Budget",
+        "Decision Authority",
+        "NPDES Compliance",
+      ]);
+      expect(result.data.header?.stageIntro).toBeDefined();
+      expect(result.data.header?.insight).toBeDefined();
+    }
+  });
+
+  it("accepts partial header with only some fields populated", () => {
+    const input = {
+      ...playbookInput,
+      header: { subStreamsSummary: "Budget · NPDES" },
+    };
+    expect(playbookInputSchema.safeParse(input).success).toBe(true);
+  });
+});
+
+describe("analyticalReadInputSchema — Slice B additive fields", () => {
+  it("parses legacy payload without new fields (backward compat)", () => {
+    const result = analyticalReadInputSchema.safeParse(analyticalReadInput);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts gateState enum values", () => {
+    for (const state of ["OPEN", "OPEN_WITH_CONDITIONS", "CONDITIONALLY_OPEN", "CLOSED"] as const) {
+      const input = { ...analyticalReadInput, gateState: state };
+      const result = analyticalReadInputSchema.safeParse(input);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.gateState).toBe(state);
+      }
+    }
+  });
+
+  it("rejects unknown gateState values", () => {
+    const input = { ...analyticalReadInput, gateState: "PARTIALLY_OPEN" };
+    expect(analyticalReadInputSchema.safeParse(input).success).toBe(false);
+  });
+
+  it("accepts gateContent as optional string", () => {
+    const input = {
+      ...analyticalReadInput,
+      gateState: "OPEN_WITH_CONDITIONS" as const,
+      gateContent: "Open pending NPDES permit renewal confirmation.",
+    };
+    const result = analyticalReadInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.gateContent).toBe("Open pending NPDES permit renewal confirmation.");
+    }
+  });
+
+  it("accepts flags array with id, severity, evidence, and optional status", () => {
+    const input = {
+      ...analyticalReadInput,
+      flags: [
+        { id: "PW-01", severity: "STOP", evidence: "Permit expiry within 90 days." },
+        {
+          id: "PW-02",
+          severity: "SPECIALIST",
+          evidence: "Biosolids handling requires regulatory specialist.",
+          status: "Under review",
+        },
+        { id: "PW-03", severity: "ATTENTION", evidence: "Flow meter calibration overdue." },
+        { id: "PW-04", severity: "CLEAR", evidence: "Operator licence current." },
+      ],
+    };
+    const result = analyticalReadInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const flags = result.data.flags ?? [];
+      expect(flags).toHaveLength(4);
+      expect(flags[0].severity).toBe("STOP");
+      expect(flags[1].status).toBe("Under review");
+      expect(flags[2].severity).toBe("ATTENTION");
+      expect(flags[3].severity).toBe("CLEAR");
+    }
+  });
+
+  it("rejects flag with unknown severity", () => {
+    const input = {
+      ...analyticalReadInput,
+      flags: [{ id: "PW-99", severity: "CRITICAL", evidence: "Unknown." }],
+    };
+    expect(analyticalReadInputSchema.safeParse(input).success).toBe(false);
+  });
+
+  it("accepts subStreamLens array", () => {
+    const input = {
+      ...analyticalReadInput,
+      subStreamLens: [
+        {
+          subStream: "Lagoon Capacity",
+          activeCondition: "At 92% seasonal peak",
+          evidenceAnchor: "PW-01",
+        },
+      ],
+    };
+    const result = analyticalReadInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.subStreamLens).toHaveLength(1);
+    }
+  });
+
+  it("accepts stageGapAnalysis array", () => {
+    const input = {
+      ...analyticalReadInput,
+      stageGapAnalysis: [
+        { required: "NPDES compliance schedule", status: "Requested", source: "Field visit" },
+      ],
+    };
+    expect(analyticalReadInputSchema.safeParse(input).success).toBe(true);
+  });
+
+  it("accepts costRows array with confidence enum", () => {
+    const input = {
+      ...analyticalReadInput,
+      costRows: [
+        { row: "Capital cost", basis: "Comparable project", confidence: "HIGH" as const },
+        { row: "O&M delta", basis: "Estimate", confidence: "MEDIUM" as const },
+        { row: "Delay cost", basis: "Qualitative", confidence: "QUALITATIVE" as const },
+      ],
+    };
+    const result = analyticalReadInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.costRows).toHaveLength(3);
+    }
+  });
+
+  it("rejects costRows with unknown confidence value", () => {
+    const input = {
+      ...analyticalReadInput,
+      costRows: [{ row: "Capital", basis: "Estimate", confidence: "VERY_HIGH" }],
+    };
+    expect(analyticalReadInputSchema.safeParse(input).success).toBe(false);
+  });
+
+  it("accepts sections[].evidenceSource and sections[].confidenceTier", () => {
+    const input = {
+      ...analyticalReadInput,
+      sections: [
+        {
+          heading: "Evidence",
+          body: "NPDES schedule suggests urgency.",
+          evidenceTags: [],
+          evidenceSource: "[PW-01]",
+          confidenceTier: "HIGH" as const,
+        },
+      ],
+    };
+    const result = analyticalReadInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.sections[0].evidenceSource).toBe("[PW-01]");
+      expect(result.data.sections[0].confidenceTier).toBe("HIGH");
+    }
+  });
+
+  it("rejects sections[].confidenceTier with unknown value", () => {
+    const input = {
+      ...analyticalReadInput,
+      sections: [
+        {
+          heading: "Evidence",
+          body: "Body text.",
+          evidenceTags: [],
+          confidenceTier: "VERY_HIGH",
+        },
+      ],
+    };
+    expect(analyticalReadInputSchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("proposalShellInputSchema — Slice B additive fields", () => {
+  it("parses legacy payload without new fields (backward compat)", () => {
+    const result = proposalShellInputSchema.safeParse(proposalShellInput);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts draftIntentBanner as optional boolean defaulting to true", () => {
+    // absent → default true
+    const r1 = proposalShellInputSchema.safeParse(proposalShellInput);
+    expect(r1.success).toBe(true);
+    if (r1.success) {
+      expect(r1.data.draftIntentBanner).toBe(true);
+    }
+    // explicit false
+    const r2 = proposalShellInputSchema.safeParse({
+      ...proposalShellInput,
+      draftIntentBanner: false,
+    });
+    expect(r2.success).toBe(true);
+    if (r2.success) {
+      expect(r2.data.draftIntentBanner).toBe(false);
+    }
+  });
+
+  it("accepts internalOnlyFooterBanner as optional boolean defaulting to true", () => {
+    const r1 = proposalShellInputSchema.safeParse(proposalShellInput);
+    expect(r1.success).toBe(true);
+    if (r1.success) {
+      expect(r1.data.internalOnlyFooterBanner).toBe(true);
+    }
+    const r2 = proposalShellInputSchema.safeParse({
+      ...proposalShellInput,
+      internalOnlyFooterBanner: false,
+    });
+    expect(r2.success).toBe(true);
+    if (r2.success) {
+      expect(r2.data.internalOnlyFooterBanner).toBe(false);
+    }
+  });
+
+  it("accepts statusOfDocument as optional string", () => {
+    const input = { ...proposalShellInput, statusOfDocument: "DRAFT — not for distribution." };
+    const result = proposalShellInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.statusOfDocument).toBe("DRAFT — not for distribution.");
+    }
+  });
+
+  it("accepts workPackages array", () => {
+    const input = {
+      ...proposalShellInput,
+      workPackages: [
+        {
+          id: "WP-1",
+          name: "Site Assessment",
+          outcome: "Confirmed flow data and permit timeline.",
+        },
+        { id: "WP-2", name: "Modular Design", outcome: "Preliminary design and CAPEX estimate." },
+      ],
+    };
+    const result = proposalShellInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const workPackages = result.data.workPackages ?? [];
+      expect(workPackages).toHaveLength(2);
+      expect(workPackages[0].id).toBe("WP-1");
+    }
+  });
+
+  it("accepts sizingRows array", () => {
+    const input = {
+      ...proposalShellInput,
+      sizingRows: [
+        { label: "CAPEX estimate", value: "$4.2M–$5.8M" },
+        { label: "Confidence", value: "MEDIUM" },
+      ],
+    };
+    expect(proposalShellInputSchema.safeParse(input).success).toBe(true);
+  });
+
+  it("accepts outOfScope array with heading and body", () => {
+    const input = {
+      ...proposalShellInput,
+      outOfScope: [
+        {
+          heading: "Phase 2 design",
+          body: "Full detailed design is excluded from this engagement.",
+        },
+      ],
+    };
+    const result = proposalShellInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const outOfScope = result.data.outOfScope ?? [];
+      expect(outOfScope[0].heading).toBe("Phase 2 design");
+    }
+  });
+
+  it("accepts gatesToClose array", () => {
+    const input = {
+      ...proposalShellInput,
+      gatesToClose: [
+        { gate: "NPDES compliance schedule confirmed", closer: "H2O regulatory specialist" },
+      ],
+    };
+    expect(proposalShellInputSchema.safeParse(input).success).toBe(true);
+  });
+
+  it("accepts commitmentsTyped array with label/text/date/owner", () => {
+    const input = {
+      ...proposalShellInput,
+      commitmentsTyped: [
+        {
+          label: "Scope delivery",
+          text: "Phase-1 scope document",
+          date: "2026-07-15",
+          owner: "H2O PM",
+        },
+        { label: "Pricing", text: "CAPEX estimate ±15%", owner: "H2O Estimating" },
+      ],
+    };
+    const result = proposalShellInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const commitmentsTyped = result.data.commitmentsTyped ?? [];
+      expect(commitmentsTyped).toHaveLength(2);
+      expect(commitmentsTyped[0].date).toBe("2026-07-15");
+      expect(commitmentsTyped[1].owner).toBe("H2O Estimating");
+      expect(commitmentsTyped[1].date).toBeUndefined();
+    }
+  });
+
+  it("legacy commitments field still parses correctly alongside new commitmentsTyped", () => {
+    const input = {
+      ...proposalShellInput,
+      commitmentsTyped: [{ label: "Scope", text: "Phase-1 scope" }],
+    };
+    // Both old commitments object and new commitmentsTyped can coexist
+    expect(proposalShellInputSchema.safeParse(input).success).toBe(true);
+  });
+});
+
 describe("cleans up orphan S3 object when artifact persistence fails", () => {
   it("deletes the just-written PDF from pdfStorage if putArtifact rejects", async () => {
     const pdfStorage = new InMemoryArtifactPdfStorage();
