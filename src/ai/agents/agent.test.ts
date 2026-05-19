@@ -37,19 +37,40 @@ describe("createAgent", () => {
     );
   });
 
-  it("caps step count at 10 (8 worst-case + 2 for model self-recovery) and wires accounting callbacks", () => {
+  it("caps step count at 10 and stops the loop when all 4 artifacts complete", () => {
     createAgent();
 
     expect(stepCountIsMock).toHaveBeenCalledWith(10);
     const settings = toolLoopAgentMock.mock.calls.at(-1)?.[0];
     expect(settings).toEqual(
       expect.objectContaining({
-        stopWhen: { __stopAt: 10 },
+        stopWhen: [{ __stopAt: 10 }, expect.any(Function)],
         onStepFinish: expect.any(Function),
         maxOutputTokens: 32_768,
       }),
     );
     expect(settings.experimental_repairToolCall).toEqual(expect.any(Function));
+
+    const [, allArtifactsCompletedStop] = settings.stopWhen;
+    expect(
+      allArtifactsCompletedStop({
+        steps: [{ content: [{ type: "tool-result", toolName: "generateFieldBrief" }] }],
+      }),
+    ).toBe(false);
+    expect(
+      allArtifactsCompletedStop({
+        steps: [
+          {
+            content: [
+              { type: "tool-result", toolName: "generateFieldBrief" },
+              { type: "tool-result", toolName: "generatePlaybook" },
+              { type: "tool-result", toolName: "generateAnalyticalRead" },
+              { type: "tool-result", toolName: "generateProposalShell" },
+            ],
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 
   it("splits instructions into a cacheable static prompt + dynamic skills suffix", () => {
@@ -188,7 +209,7 @@ describe("createAgent", () => {
     });
   });
 
-  it("keeps artifact tools unrestricted before field brief composition and disables tools after all artifacts finish", () => {
+  it("keeps artifact tools unrestricted before field brief composition (the loop stops via stopWhen once all 4 artifacts finish, so prepareStep never returns toolChoice:none)", () => {
     createAgent();
     const settings = toolLoopAgentMock.mock.calls.at(-1)?.[0];
 
@@ -197,21 +218,6 @@ describe("createAgent", () => {
         steps: [{ content: [{ type: "tool-call", toolName: "loadSkill" }] }],
       }),
     ).toBeUndefined();
-
-    expect(
-      settings.prepareStep({
-        steps: [
-          {
-            content: [
-              { type: "tool-result", toolName: "generateFieldBrief" },
-              { type: "tool-result", toolName: "generatePlaybook" },
-              { type: "tool-result", toolName: "generateAnalyticalRead" },
-              { type: "tool-result", toolName: "generateProposalShell" },
-            ],
-          },
-        ],
-      }),
-    ).toEqual({ toolChoice: "none" });
   });
 
   it("repairs invalid tool input by re-asking for the same tool call", async () => {
