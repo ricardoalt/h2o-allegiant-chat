@@ -23,7 +23,6 @@ import {
   getToolRenderingMetadata,
   prepareChatSendMessagesRequest,
   shouldShowArtifactPackageHeartbeat,
-  summarizeMessagesForTelemetry,
   toolRenderKey,
 } from "./chat-interface";
 
@@ -174,6 +173,25 @@ describe("prepareChatSendMessagesRequest", () => {
 });
 
 describe("agent status progress", () => {
+  it("keeps preparing-artifact status visible while assistant text is already visible", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Now rendering the four-artifact package sequentially." }],
+      },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("streaming", messages, {
+        phase: "preparing-artifact",
+        artifactKind: "field-brief",
+        label: "Preparing Field Brief…",
+      }),
+    ).toBe(true);
+  });
+
   it("does not show generic agent status while assistant text is already visible", () => {
     const messages: MyUIMessage[] = [
       { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
@@ -192,10 +210,65 @@ describe("agent status progress", () => {
     ).toBe(false);
   });
 
-  it("keeps the agent status visible while an artifact tool input is still streaming", () => {
-    // ArtifactToolCard returns null during `input-streaming` / `input-available`
-    // so the global progress bar is the only signal the user has during the
-    // long model-composition window. Hiding it would leave the screen blank.
+  it("keeps preparing-artifact visible when only a previous artifact card is visible", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generateFieldBrief",
+            state: "output-available",
+            input: {},
+            output: {
+              artifactType: "field-brief",
+              title: "Field Brief",
+              status: "rendering",
+              message: "Rendering PDF…",
+            },
+            toolCallId: "tool-1",
+          } as unknown as MyUIMessage["parts"][number],
+        ],
+      },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("streaming", messages, {
+        phase: "preparing-artifact",
+        artifactKind: "playbook",
+        label: "Preparing Conversation Playbook…",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps preparing-artifact visible when only a hidden generic tool is active", () => {
+    const messages: MyUIMessage[] = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-loadSkill",
+            state: "input-available",
+            input: {},
+            toolCallId: "tool-load-skill",
+          } as unknown as MyUIMessage["parts"][number],
+        ],
+      },
+    ];
+
+    expect(
+      shouldShowAgentStatusProgress("streaming", messages, {
+        phase: "preparing-artifact",
+        artifactKind: "field-brief",
+        label: "Preparing Field Brief…",
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the preparing-artifact status once an input-state artifact card for the same artifact is visible", () => {
     const messages: MyUIMessage[] = [
       { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
       {
@@ -218,7 +291,7 @@ describe("agent status progress", () => {
         artifactKind: "field-brief",
         label: "Preparing Field Brief…",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("hides the generic agent status once the artifact tool has output to render", () => {
@@ -304,6 +377,26 @@ describe("agent status progress", () => {
 });
 
 describe("artifact tool card", () => {
+  it("renders input-streaming as a preparing artifact card", () => {
+    const markup = renderToStaticMarkup(
+      <ArtifactToolCard Icon={FileTextIcon} title="Field Brief" state="input-streaming" />,
+    );
+
+    expect(markup).toContain("Field Brief");
+    expect(markup).toContain("Preparing field brief…");
+    expect(markup).not.toContain("Download");
+  });
+
+  it("renders input-available as a generating artifact card", () => {
+    const markup = renderToStaticMarkup(
+      <ArtifactToolCard Icon={FileTextIcon} title="Field Brief" state="input-available" />,
+    );
+
+    expect(markup).toContain("Field Brief");
+    expect(markup).toContain("Generating field brief…");
+    expect(markup).not.toContain("Download");
+  });
+
   it("renders preliminary artifact progress messages without expecting a PDF link", () => {
     const markup = renderToStaticMarkup(
       <ArtifactToolCard
@@ -322,6 +415,39 @@ describe("artifact tool card", () => {
     expect(markup).toContain("Rendering PDF…");
     expect(markup).not.toContain("Download");
     expect(markup).not.toContain("View");
+  });
+
+  it("keeps a completed artifact downloadable while the next artifact input card renders", () => {
+    const markup = renderToStaticMarkup(
+      <div>
+        <ArtifactToolCard
+          Icon={FileTextIcon}
+          title="Field Brief"
+          state="output-available"
+          output={{
+            artifactId: "artifact-1",
+            artifactType: "field-brief",
+            title: "Field Brief",
+            status: "ready",
+            createdAt: "2026-05-19T00:00:00.000Z",
+            formats: [
+              {
+                format: "pdf",
+                mediaType: "application/pdf",
+                filename: "field-brief.pdf",
+                downloadUrl: "https://example.com/field-brief.pdf",
+              },
+            ],
+          }}
+        />
+        <ArtifactToolCard Icon={FileTextIcon} title="Analytical Read" state="input-streaming" />
+      </div>,
+    );
+
+    expect(markup).toContain("Field Brief");
+    expect(markup).toContain("Download");
+    expect(markup).toContain("Analytical Read");
+    expect(markup).toContain("Preparing analytical read…");
   });
 });
 
@@ -407,7 +533,12 @@ describe("tool rendering helpers", () => {
     expect(getToolRenderingMetadata({ type: 123 })).toBeNull();
   });
 
-  it("changes the tool render key when a tool becomes terminal", () => {
+  it("uses a stable toolCallId-based render key across tool state transitions", () => {
+    expect(toolRenderKey("assistant-1", 0, false, "tool-1")).toBe("tool-tool-1");
+    expect(toolRenderKey("assistant-1", 0, true, "tool-1")).toBe("tool-tool-1");
+  });
+
+  it("falls back to message/index/defaultOpen when a toolCallId is unavailable", () => {
     expect(toolRenderKey("assistant-1", 0, false)).toBe("assistant-1-0-active");
     expect(toolRenderKey("assistant-1", 0, true)).toBe("assistant-1-0-terminal");
   });
@@ -459,42 +590,6 @@ describe("tool rendering helpers", () => {
     };
 
     expect(shouldShowArtifactPackageHeartbeat(message)).toBe(false);
-  });
-
-  it("summarizes visible and hidden parts for low-noise lifecycle telemetry", () => {
-    const messages: MyUIMessage[] = [
-      { id: "user-1", role: "user", parts: [{ type: "text", text: "Build artifacts" }] },
-      {
-        id: "assistant-1",
-        role: "assistant",
-        parts: [
-          { type: "text", text: "Working" },
-          {
-            type: "tool-loadSkill",
-            state: "output-available",
-            input: {},
-            output: "ok",
-            toolCallId: "tool-1",
-          } as unknown as MyUIMessage["parts"][number],
-          {
-            type: "tool-generateFieldBrief",
-            state: "input-available",
-            input: {},
-            toolCallId: "tool-2",
-          } as unknown as MyUIMessage["parts"][number],
-        ],
-      },
-    ];
-
-    expect(summarizeMessagesForTelemetry(messages)).toEqual({
-      messageCount: 2,
-      lastMessageId: "assistant-1",
-      lastMessageRole: "assistant",
-      visiblePartCount: 3,
-      genericToolCount: 1,
-      artifactToolCount: 1,
-      hiddenPartCount: 1,
-    });
   });
 });
 

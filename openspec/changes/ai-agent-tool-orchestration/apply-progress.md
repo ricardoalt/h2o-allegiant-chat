@@ -143,12 +143,12 @@ Status: completed — P0 UI cleanup, artifact preliminary progress, and Analytic
 
 ## TDD Cycle Evidence
 
-| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Suppress generic progress while visible text/tool activity exists | `src/components/chat-interface.test.tsx` | Unit | ✅ 58/58 | ✅ Missing `shouldShowAgentStatusProgress` failed | ✅ Helper wired and UI uses it | ✅ Added artifact-tool activity case plus silent submitted case | ✅ Extracted `hasVisibleAssistantProgress` in `chat-utils` |
-| Fix submit/stop icon semantics | `src/components/chat-interface.test.tsx` | Unit/SSR | ✅ 58/58 | ✅ Streaming without `onStop` still rendered Stop | ✅ `PromptInputSubmit` only stops when `onStop` exists | ✅ Added wired-stop case and passed `useChat().stop` through composer | ✅ Reused `canStop` boolean for aria/type/icon/click semantics |
-| Stream preliminary artifact progress | `src/ai/tools/h2o-artifacts.test.ts`, `src/components/chat-interface.test.tsx` | Unit | ✅ 58/58 | ✅ Artifact tools emitted only final `ready` result | ✅ Async-generator tools yielded `rendering`/`storing`/`persisting`/`ready` | ✅ Added Analytical Read progress case and card render progress case | ✅ Added output union types and centralized final-result collection helper in tests |
-| Improve abort/Analytical Read mitigation | `src/lib/chat-runtime.test.ts`, `src/lib/chat-handler.test.ts` | Unit | ✅ 58/58 | ✅ Sanitized abort text and timeout budget expectation failed | ✅ Abort text distinguishes timeout/interruption and `totalMs` set to 285s | ✅ Dynamic-tool incomplete path also asserts new text | ✅ Extracted abort text constant and updated timeout comments with AWS rationale |
+| Task                                                              | Test File                                                                      | Layer    | Safety Net | RED                                                           | GREEN                                                                       | TRIANGULATE                                                           | REFACTOR                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------- | ---------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Suppress generic progress while visible text/tool activity exists | `src/components/chat-interface.test.tsx`                                       | Unit     | ✅ 58/58   | ✅ Missing `shouldShowAgentStatusProgress` failed             | ✅ Helper wired and UI uses it                                              | ✅ Added artifact-tool activity case plus silent submitted case       | ✅ Extracted `hasVisibleAssistantProgress` in `chat-utils`                          |
+| Fix submit/stop icon semantics                                    | `src/components/chat-interface.test.tsx`                                       | Unit/SSR | ✅ 58/58   | ✅ Streaming without `onStop` still rendered Stop             | ✅ `PromptInputSubmit` only stops when `onStop` exists                      | ✅ Added wired-stop case and passed `useChat().stop` through composer | ✅ Reused `canStop` boolean for aria/type/icon/click semantics                      |
+| Stream preliminary artifact progress                              | `src/ai/tools/h2o-artifacts.test.ts`, `src/components/chat-interface.test.tsx` | Unit     | ✅ 58/58   | ✅ Artifact tools emitted only final `ready` result           | ✅ Async-generator tools yielded `rendering`/`storing`/`persisting`/`ready` | ✅ Added Analytical Read progress case and card render progress case  | ✅ Added output union types and centralized final-result collection helper in tests |
+| Improve abort/Analytical Read mitigation                          | `src/lib/chat-runtime.test.ts`, `src/lib/chat-handler.test.ts`                 | Unit     | ✅ 58/58   | ✅ Sanitized abort text and timeout budget expectation failed | ✅ Abort text distinguishes timeout/interruption and `totalMs` set to 285s  | ✅ Dynamic-tool incomplete path also asserts new text                 | ✅ Extracted abort text constant and updated timeout comments with AWS rationale    |
 
 ## Deviations / Notes
 
@@ -165,3 +165,51 @@ Status: completed — P0 UI cleanup, artifact preliminary progress, and Analytic
 ## Workload / PR Boundary
 
 - This slice exceeds the original 400-line review comfort mainly due accumulated uncommitted Slice 2 UI changes and focused tests. Recommended review boundary: post-progress manual-test fixes + Analytical Read timeout/abort mitigation only; do not combine with prompt/orchestration changes.
+
+## Stable Artifact-Card UX Apply Slice
+
+Status: completed — restored stable per-artifact active cards and semantic pre-tool status while preserving final artifact cards.
+
+## Completed Tasks
+
+- [x] Added RED tests for semantic `preparing-artifact` visibility over assistant text, generic `still-working` suppression over text, input-state artifact cards, sequential ready+active artifact cards, and stable `toolCallId` keys.
+- [x] Updated `ArtifactToolCard` to render `input-streaming` as `Preparing <title>…` and `input-available` as `Generating <title>…` while preserving preliminary output, final View/Download, and error states.
+- [x] Updated `shouldShowAgentStatusProgress` so `preparing-artifact` remains visible during the pre-tool gap even when assistant text exists, while generic statuses remain hidden once text/cards are visible.
+- [x] Updated artifact tool render keys to prefer `toolCallId` (`tool-${toolCallId}`) with the previous message/index/defaultOpen fallback for non-tool cases.
+
+## Files Changed
+
+- `src/components/ai-elements/artifact-tool-card.tsx`
+- `src/components/chat-interface.tsx`
+- `src/lib/chat-utils.ts`
+- `src/components/chat-interface.test.tsx`
+- `openspec/changes/ai-agent-tool-orchestration/apply-progress.md`
+
+## Test Commands Run
+
+- `bun run test src/components/chat-interface.test.tsx src/lib/chat-handler.test.ts src/lib/chat-handler.artifacts.test.ts` — safety net: 46/46 passing before production edits.
+- `bun run test src/components/chat-interface.test.tsx` — RED: 5 expected failures for missing preparing-artifact-over-text, input-state cards, sequential ready+active card, and stable toolCallId keys.
+- `bun run test src/components/chat-interface.test.tsx` — GREEN/TRIANGULATE: 39/39 passing after implementation and updating the obsolete input-state-status expectation.
+- `bun run test src/components/chat-interface.test.tsx src/lib/chat-handler.test.ts src/lib/chat-handler.artifacts.test.ts && bun run lint` — final verification: 51/51 focused tests passing; Biome lint passing.
+
+## TDD Cycle Evidence
+
+| Task                                           | Test File                                | Layer              | Safety Net       | RED                                                                                           | GREEN                                           | TRIANGULATE                                                         | REFACTOR                                                |
+| ---------------------------------------------- | ---------------------------------------- | ------------------ | ---------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
+| Semantic pre-tool status + generic suppression | `src/components/chat-interface.test.tsx` | Unit/SSR helper    | ✅ 46/46 focused | ✅ `preparing-artifact` over text failed while existing generic text suppression stayed green | ✅ Helper special-cases `preparing-artifact`    | ✅ Input-state card visibility now hides duplicate preparing status | ✅ Comments aligned with pre-tool/card handoff          |
+| Active artifact input cards                    | `src/components/chat-interface.test.tsx` | Unit/SSR component | ✅ 46/46 focused | ✅ `input-streaming`/`input-available` rendered empty                                         | ✅ Cards render `Preparing…`/`Generating…`      | ✅ Ready Field Brief + active Analytical Read render together       | ✅ Reused existing card shell and final/output branches |
+| Stable artifact tool keys                      | `src/components/chat-interface.test.tsx` | Unit               | ✅ 46/46 focused | ✅ `toolCallId` key expectation failed                                                        | ✅ `toolRenderKey` prefers `tool-${toolCallId}` | ✅ Fallback message/index/defaultOpen behavior preserved            | ✅ Callsite passes `part.toolCallId`                    |
+
+## Deviations / Notes
+
+- No backend artifact execution, timeout, schema, or orchestration code was changed.
+- Temporary telemetry requested by the parent is not removed by this slice.
+
+## Remaining Tasks
+
+- Manual browser test with console telemetry enabled to verify: pre-tool `Preparing Field Brief…`, input-state cards, progressive ready cards, and no generic `Still working…` rectangle over streamed text.
+- If progressive server chunks still do not show in the browser, investigate transport/client delivery separately; this slice only fixes the UI state mapping.
+
+## Workload / PR Boundary
+
+- Single UI/test slice, ~130 changed lines excluding progress docs; intended as a focused artifact-card UX PR boundary.

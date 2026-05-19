@@ -4,13 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { getThreadMessages } from "@app/actions/messages";
 import { cloneThread, type Thread } from "@app/actions/threads";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  DefaultChatTransport,
-  type DynamicToolUIPart,
-  isToolUIPart,
-  type PrepareSendMessagesRequest,
-  type ToolUIPart,
-} from "ai";
+import { DefaultChatTransport, type PrepareSendMessagesRequest } from "ai";
 import { fetchAuthSession } from "aws-amplify/auth";
 import {
   BarChart3Icon,
@@ -73,8 +67,6 @@ type ArtifactToolType = keyof typeof ARTIFACT_TOOL_CONFIGS;
 
 type ArtifactToolPart = Extract<MyUIMessage["parts"][number], { type: ArtifactToolType }>;
 
-type AnyToolPart = ToolUIPart | DynamicToolUIPart;
-
 type ToolRenderingMetadata = {
   kind: "artifact-tool";
   title: string;
@@ -89,15 +81,6 @@ const isArtifactToolPart = (part: unknown): part is ArtifactToolPart =>
   "type" in part &&
   typeof part.type === "string" &&
   part.type in ARTIFACT_TOOL_CONFIGS;
-
-const asToolPart = (part: unknown): AnyToolPart | null => {
-  if (typeof part !== "object" || part === null || !("type" in part)) {
-    return null;
-  }
-
-  const candidate = part as AnyToolPart;
-  return typeof candidate.type === "string" && isToolUIPart(candidate) ? candidate : null;
-};
 
 export const getToolRenderingMetadata = (part: unknown): ToolRenderingMetadata | null => {
   const state = typeof part === "object" && part !== null && "state" in part ? part.state : null;
@@ -114,8 +97,15 @@ export const getToolRenderingMetadata = (part: unknown): ToolRenderingMetadata |
   return null;
 };
 
-export const toolRenderKey = (messageId: string, partIndex: number, defaultOpen: boolean): string =>
-  `${messageId}-${partIndex}-${defaultOpen ? "terminal" : "active"}`;
+export const toolRenderKey = (
+  messageId: string,
+  partIndex: number,
+  defaultOpen: boolean,
+  toolCallId?: string,
+): string =>
+  toolCallId
+    ? `tool-${toolCallId}`
+    : `${messageId}-${partIndex}-${defaultOpen ? "terminal" : "active"}`;
 
 export const shouldShowArtifactPackageHeartbeat = (message: MyUIMessage): boolean => {
   const artifactParts = message.parts.filter(isArtifactToolPart);
@@ -134,76 +124,6 @@ export function ArtifactPackageHeartbeat(): React.JSX.Element {
     </div>
   );
 }
-
-export const summarizeMessagesForTelemetry = (messages: MyUIMessage[]) => {
-  const lastMessage = messages.at(-1);
-  let visiblePartCount = 0;
-  let genericToolCount = 0;
-  let artifactToolCount = 0;
-  let hiddenPartCount = 0;
-
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type === "text" || part.type === "reasoning" || part.type === "file") {
-        visiblePartCount += 1;
-        continue;
-      }
-
-      const toolMetadata = getToolRenderingMetadata(part);
-      if (toolMetadata?.kind === "artifact-tool") {
-        artifactToolCount += 1;
-        visiblePartCount += 1;
-        continue;
-      }
-      const toolPart = asToolPart(part);
-      if (toolPart) {
-        genericToolCount += 1;
-      }
-
-      hiddenPartCount += 1;
-    }
-  }
-
-  return {
-    messageCount: messages.length,
-    lastMessageId: lastMessage?.id,
-    lastMessageRole: lastMessage?.role,
-    visiblePartCount,
-    genericToolCount,
-    artifactToolCount,
-    hiddenPartCount,
-  };
-};
-
-const summarizeToolPartsForTelemetry = (messages: MyUIMessage[]) =>
-  messages.flatMap((message, messageIndex) =>
-    message.parts.flatMap((part, partIndex) => {
-      const toolPart = asToolPart(part);
-      if (!toolPart) return [];
-
-      const output =
-        "output" in toolPart && typeof toolPart.output === "object" && toolPart.output !== null
-          ? (toolPart.output as Record<string, unknown>)
-          : undefined;
-
-      return [
-        {
-          messageIndex,
-          messageId: message.id,
-          role: message.role,
-          partIndex,
-          type: toolPart.type,
-          state: toolPart.state,
-          toolCallId: "toolCallId" in toolPart ? toolPart.toolCallId : undefined,
-          preliminary: "preliminary" in toolPart ? toolPart.preliminary : undefined,
-          outputStatus: typeof output?.status === "string" ? output.status : undefined,
-          outputArtifactType:
-            typeof output?.artifactType === "string" ? output.artifactType : undefined,
-          rendersAsArtifact: getToolRenderingMetadata(part)?.kind === "artifact-tool",
-        },
-      ];
-    }),
-  );
 
 type ChatSendRequestInput = Pick<
   Parameters<PrepareSendMessagesRequest<MyUIMessage>>[0],
@@ -319,8 +239,6 @@ export function AgentStatusProgress({ status }: { status: AgentStatusData }): Re
   );
 }
 
-type ReconciliationTrigger = "on_finish" | "error";
-
 export function ChatInterface({
   initialMessages = [],
   threadId,
@@ -333,9 +251,8 @@ export function ChatInterface({
   const draft = useDraftInput();
   const messagesRef = useRef(initialMessages);
   const [agentStatus, setAgentStatus] = useState<AgentStatusData | null>(null);
-  const toolTelemetrySignatureRef = useRef("");
   const reconciliationRequestRef = useRef(0);
-  const reconcileAfterStreamRef = useRef<(source: ReconciliationTrigger) => void>(() => undefined);
+  const reconcileAfterStreamRef = useRef<() => void>(() => undefined);
 
   const branchMutation = useMutation({
     mutationFn: (upToMessageId: string) => cloneThread({ sourceThreadId: threadId, upToMessageId }),
@@ -349,31 +266,14 @@ export function ChatInterface({
     useChat<MyUIMessage>({
       id: threadId,
       messages: initialMessages,
-      onFinish: ({ messages: finishedMessages, isAbort, isDisconnect, isError, finishReason }) => {
+      experimental_throttle: 50,
+      onFinish: ({ messages: finishedMessages }) => {
         setAgentStatus(null);
         messagesRef.current = finishedMessages;
-        console.info("[chat-ui] use_chat_finish", {
-          event: "use_chat_finish",
-          finishReason,
-          isAbort,
-          isDisconnect,
-          isError,
-          threadId,
-          ...summarizeMessagesForTelemetry(finishedMessages),
-        });
-        reconcileAfterStreamRef.current("on_finish");
+        reconcileAfterStreamRef.current();
       },
       onData: (dataPart) => {
         if (dataPart.type === "data-agent-status" && isAgentStatusData(dataPart.data)) {
-          console.info("[chat-ui] agent_status_data", {
-            event: "agent_status_data",
-            threadId,
-            receivedAtMs: performance.now(),
-            phase: dataPart.data.phase,
-            artifactKind: dataPart.data.artifactKind,
-            label: dataPart.data.label,
-            elapsedMs: dataPart.data.elapsedMs,
-          });
           setAgentStatus(dataPart.data);
           return;
         }
@@ -415,82 +315,24 @@ export function ChatInterface({
       }),
     });
 
-  const previousStatusRef = useRef(status);
-
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  useEffect(() => {
-    const toolParts = summarizeToolPartsForTelemetry(messages);
-    const signature = JSON.stringify(toolParts);
-    if (signature === toolTelemetrySignatureRef.current) {
-      return;
-    }
-
-    toolTelemetrySignatureRef.current = signature;
-    console.info("[chat-ui] tool_part_state_changed", {
-      event: "tool_part_state_changed",
+  const reconcilePersistedMessages = useCallback(() => {
+    const requestId = reconciliationRequestRef.current + 1;
+    reconciliationRequestRef.current = requestId;
+    void reconcileThreadAfterStream({
+      fetchMessages: getThreadMessages,
+      getCurrentMessages: () => messagesRef.current,
+      queryClient,
+      ...LONG_STREAM_RECONCILIATION_OPTIONS,
+      setMessages,
+      shouldApply: () => reconciliationRequestRef.current === requestId,
       threadId,
-      status,
-      agentStatusPhase: agentStatus?.phase,
-      agentStatusArtifactKind: agentStatus?.artifactKind,
-      lastMessageId: messages.at(-1)?.id,
-      lastMessageRole: messages.at(-1)?.role,
-      toolParts,
+      waitForTerminalArtifactTools: true,
     });
-  }, [agentStatus?.artifactKind, agentStatus?.phase, messages, status, threadId]);
-
-  useEffect(() => {
-    if (previousStatusRef.current === status) {
-      return;
-    }
-
-    console.info("[chat-ui] use_chat_status_changed", {
-      event: "use_chat_status_changed",
-      from: previousStatusRef.current,
-      threadId,
-      to: status,
-      ...summarizeMessagesForTelemetry(messages),
-    });
-    previousStatusRef.current = status;
-  }, [messages, status, threadId]);
-
-  const reconcilePersistedMessages = useCallback(
-    (source: ReconciliationTrigger) => {
-      const requestId = reconciliationRequestRef.current + 1;
-      reconciliationRequestRef.current = requestId;
-      void reconcileThreadAfterStream({
-        fetchMessages: getThreadMessages,
-        getCurrentMessages: () => messagesRef.current,
-        onError: (reconciliationError) => {
-          console.warn("[chat-ui] reconciliation_error", {
-            event: "reconciliation_error",
-            message:
-              reconciliationError instanceof Error
-                ? reconciliationError.message
-                : String(reconciliationError),
-            source,
-            threadId,
-          });
-        },
-        onTelemetry: (telemetry) => {
-          console.info("[chat-ui] reconciliation_decision", {
-            event: "reconciliation_decision",
-            source,
-            ...telemetry,
-          });
-        },
-        queryClient,
-        ...LONG_STREAM_RECONCILIATION_OPTIONS,
-        setMessages,
-        shouldApply: () => reconciliationRequestRef.current === requestId,
-        threadId,
-        waitForTerminalArtifactTools: true,
-      });
-    },
-    [queryClient, setMessages, threadId],
-  );
+  }, [queryClient, setMessages, threadId]);
 
   useEffect(() => {
     reconcileAfterStreamRef.current = reconcilePersistedMessages;
@@ -498,7 +340,7 @@ export function ChatInterface({
 
   useEffect(() => {
     if (error) {
-      reconcilePersistedMessages("error");
+      reconcilePersistedMessages();
     }
   }, [error, reconcilePersistedMessages]);
 
@@ -673,7 +515,12 @@ export function ChatInterface({
                                   const config = ARTIFACT_TOOL_CONFIGS[part.type];
                                   return (
                                     <ArtifactToolCard
-                                      key={toolRenderKey(message.id, i, toolMetadata.defaultOpen)}
+                                      key={toolRenderKey(
+                                        message.id,
+                                        i,
+                                        toolMetadata.defaultOpen,
+                                        part.toolCallId,
+                                      )}
                                       Icon={config.Icon}
                                       title={config.title}
                                       state={part.state}

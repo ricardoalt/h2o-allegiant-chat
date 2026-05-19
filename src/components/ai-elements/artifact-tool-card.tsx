@@ -24,12 +24,25 @@ export function ArtifactToolCard({
   output,
   errorText,
 }: ArtifactToolCardProps): React.JSX.Element | null {
-  // Suppress the card while the model is still composing the tool input. The
-  // global `AgentStatusProgress` already labels this phase ("Preparing Field
-  // Brief…") via the `preparing-artifact` data-agent-status event, so rendering
-  // the card here would duplicate the same shimmer and feel redundant.
   if (state === "input-streaming" || state === "input-available") {
-    return null;
+    const message =
+      state === "input-streaming"
+        ? `Preparing ${title.toLowerCase()}…`
+        : `Generating ${title.toLowerCase()}…`;
+
+    return (
+      <div className="not-prose w-full rounded-lg border bg-card px-3 py-3 sm:max-w-sm">
+        <div className="flex items-center gap-3">
+          <Icon aria-hidden className="size-5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-xs">{title}</p>
+            <Shimmer as="p" className="text-xs">
+              {message}
+            </Shimmer>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (state === "output-error") {

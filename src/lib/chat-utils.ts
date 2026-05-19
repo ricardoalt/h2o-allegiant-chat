@@ -8,11 +8,22 @@ export const canSubmitPromptMessage = (message: PromptInputMessage): boolean => 
   return hasText || hasAttachments;
 };
 
-// Tool states that already render their own visible card (the ArtifactToolCard
-// renders for `output-available` preliminary/final yields and `output-error`).
-// During `input-streaming` / `input-available` the card returns null and the
-// global AgentStatusProgress is the only signal the user has — keep it visible.
-const CARD_VISIBLE_TOOL_STATES = new Set<string>(["output-available", "output-error"]);
+const ARTIFACT_TOOL_KIND_BY_TYPE = {
+  "tool-generateFieldBrief": "field-brief",
+  "tool-generatePlaybook": "playbook",
+  "tool-generateAnalyticalRead": "analytical-read",
+  "tool-generateProposalShell": "proposal-shell",
+} as const;
+
+// Tool states that already render their own visible artifact card. Keep this
+// aligned with ArtifactToolCard so generic status only shows during true
+// pre-tool gaps or semantic preparing-artifact announcements.
+const CARD_VISIBLE_TOOL_STATES = new Set<string>([
+  "input-streaming",
+  "input-available",
+  "output-available",
+  "output-error",
+]);
 
 const hasVisibleText = (message: MyUIMessage | undefined): boolean => {
   if (!message) return false;
@@ -29,10 +40,22 @@ const hasAnyToolActivity = (message: MyUIMessage | undefined): boolean => {
   return message.parts.some(isToolPartWithState);
 };
 
-const hasArtifactCardVisible = (message: MyUIMessage | undefined): boolean => {
+const getArtifactKindForToolPart = (
+  part: MyUIMessage["parts"][number],
+): AgentStatusData["artifactKind"] | undefined => {
+  if (!(part.type in ARTIFACT_TOOL_KIND_BY_TYPE)) return undefined;
+  return ARTIFACT_TOOL_KIND_BY_TYPE[part.type as keyof typeof ARTIFACT_TOOL_KIND_BY_TYPE];
+};
+
+const hasArtifactCardVisible = (
+  message: MyUIMessage | undefined,
+  artifactKind?: AgentStatusData["artifactKind"],
+): boolean => {
   if (!message) return false;
   return message.parts.some((part) => {
     if (!isToolPartWithState(part)) return false;
+    const partArtifactKind = getArtifactKindForToolPart(part);
+    if (!partArtifactKind || (artifactKind && partArtifactKind !== artifactKind)) return false;
     const state = (part as { state?: unknown }).state;
     return typeof state === "string" && CARD_VISIBLE_TOOL_STATES.has(state);
   });
@@ -47,10 +70,15 @@ export function shouldShowAgentStatusProgress(
     return false;
   }
 
-  // Hide the global status only once an actual artifact card or assistant text
-  // is visible — those take over the progress signal. While the tool is still
-  // in input-streaming/input-available the card is null, so this stays visible.
   const lastAssistant = findLast(messages, (m) => m.role === "assistant");
+
+  // Keep semantic artifact preparation visible through the long pre-tool gap,
+  // even if the assistant has already streamed explanatory text. Generic
+  // still-working heartbeats should not compete with visible text or cards.
+  if (agentStatus.phase === "preparing-artifact") {
+    return !hasArtifactCardVisible(lastAssistant, agentStatus.artifactKind);
+  }
+
   return !hasVisibleText(lastAssistant) && !hasArtifactCardVisible(lastAssistant);
 }
 

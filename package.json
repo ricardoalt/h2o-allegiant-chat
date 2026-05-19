@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.96",
-    "@ai-sdk/react": "^3.0.79",
+    "@ai-sdk/react": "3.0.184",
     "@aws-amplify/adapter-nextjs": "^1.7.3",
     "@aws-amplify/ui-react": "^6.15.3",
     "@aws-sdk/client-dynamodb": "^3.1045.0",
