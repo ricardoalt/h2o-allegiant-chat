@@ -2,7 +2,6 @@ import {
   generateText,
   NoSuchToolError,
   type PrepareStepFunction,
-  type StopCondition,
   type SystemModelMessage,
   stepCountIs,
   ToolLoopAgent,
@@ -49,12 +48,12 @@ const H2O_AGENT_SYSTEM_MESSAGES: SystemModelMessage[] = [
   },
 ];
 
-// Worst case opportunity-advancing turn: loadSkill (up to 3) + 4 generate* = 7.
-// The loop is stopped by `allArtifactsCompletedStop` the moment the 4th
-// artifact tool finishes — no extra "closing reply" step is issued, because
-// Bedrock rejects a toolChoice:"none" follow-up when the last user-turn block
-// is a toolResult with no text content. Cap kept at 10 to leave 3 steps of
-// headroom for the model to self-recover from tool-input repair attempts.
+// Worst case opportunity-advancing turn: loadSkill (up to 3) + 4 generate* +
+// 1 closing text = 8. Cap at 10 to leave 2 steps of headroom for tool-input
+// repair attempts. The loop terminates naturally when the model decides it's
+// done — typically after the closing text step where prepareStep has filtered
+// completed artifact tools out of `activeTools`, leaving only `loadSkill`.
+// The model sees no useful tool to call and generates a closing summary.
 const AGENT_MAX_STEPS = 10;
 
 // Sonnet 4.6 supports up to 64K output tokens; cap at 32K to leave headroom for
@@ -114,28 +113,6 @@ const loadSkillNameFrom = (value: unknown): string | null => {
 const isLoadedSkillPart = (part: StepContentPartLike, skillName: string): boolean =>
   part.toolName === "loadSkill" &&
   (loadSkillNameFrom(part.input) === skillName || loadSkillNameFrom(part.output) === skillName);
-
-const collectCompletedArtifacts = (steps: Array<{ content?: unknown }>): Set<ArtifactToolName> => {
-  const completed = new Set<ArtifactToolName>();
-  for (const step of steps) {
-    const content = Array.isArray(step.content) ? (step.content as StepContentPartLike[]) : [];
-    for (const part of content) {
-      if (part.type === "tool-result" && isArtifactToolName(part.toolName)) {
-        completed.add(part.toolName);
-      }
-    }
-  }
-  return completed;
-};
-
-// Stops the agent loop the moment all four artifact tools have returned a
-// result. Without this, the loop would attempt one more step with
-// `toolChoice: "none"` to produce a closing reply, and Bedrock rejects that
-// call as "assistant message prefill" because the last user-turn block
-// contains only a toolResult (no text). Stopping here also saves one wasted
-// Bedrock round-trip.
-const allArtifactsCompletedStop: StopCondition<ToolSet> = ({ steps }) =>
-  collectCompletedArtifacts(steps).size === ARTIFACT_TOOL_SEQUENCE.length;
 
 const activeToolsWithoutCompletedArtifacts = (
   completedArtifacts: Set<ArtifactToolName>,
@@ -262,10 +239,7 @@ export const createAgent = ({ tools = {}, onNextArtifact }: CreateAgentOptions =
   new ToolLoopAgent({
     model: bedrockProvider(MODELS[0].runtimeModelId),
     instructions: H2O_AGENT_SYSTEM_MESSAGES,
-    stopWhen: [
-      stepCountIs(AGENT_MAX_STEPS),
-      allArtifactsCompletedStop as unknown as StopCondition<AgentToolSet>,
-    ],
+    stopWhen: stepCountIs(AGENT_MAX_STEPS),
     maxOutputTokens: AGENT_MAX_OUTPUT_TOKENS,
     tools: {
       loadSkill: loadSkillTool,
