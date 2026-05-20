@@ -72,7 +72,7 @@ const writeResponseChunk = async (
   }
   return false;
 };
-const DEFAULT_ALLOWED_METHODS = ["POST", "OPTIONS"];
+const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"];
 const DEFAULT_EXPOSED_HEADERS = ["x-error-code", "x-request-id"];
 
 const normalizeHeaders = (headers: LambdaFunctionUrlEvent["headers"]): Headers => {

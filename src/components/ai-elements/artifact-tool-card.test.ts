@@ -1,23 +1,63 @@
-import { describe, expect, it } from "vitest";
-import { artifactViewUrl } from "./artifact-tool-card";
+import { fetchAuthSession } from "aws-amplify/auth";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveArtifactPresignedUrl } from "./artifact-tool-card";
 
-describe("artifactViewUrl", () => {
-  it.each([
-    ["https://example.com/file.pdf", "https://example.com/file.pdf?disposition=inline"],
-    ["https://example.com/file.pdf?x=1", "https://example.com/file.pdf?x=1&disposition=inline"],
-    [
-      "/api/threads/thread-1/artifacts/field-brief/pdf#page=2",
-      "/api/threads/thread-1/artifacts/field-brief/pdf?disposition=inline#page=2",
-    ],
-    [
-      "/api/threads/thread-1/artifacts/field-brief/pdf?x=1#page=2",
-      "/api/threads/thread-1/artifacts/field-brief/pdf?x=1&disposition=inline#page=2",
-    ],
-    [
-      "/api/threads/thread-1/artifacts/field-brief/pdf?disposition=attachment",
-      "/api/threads/thread-1/artifacts/field-brief/pdf?disposition=inline",
-    ],
-  ])("converts %s to %s", (downloadUrl, expected) => {
-    expect(artifactViewUrl(downloadUrl)).toBe(expected);
+vi.mock("aws-amplify/auth", () => ({
+  fetchAuthSession: vi.fn(),
+}));
+
+const fetchAuthSessionMock = vi.mocked(fetchAuthSession);
+
+describe("resolveArtifactPresignedUrl", () => {
+  beforeEach(() => {
+    fetchAuthSessionMock.mockResolvedValue({
+      tokens: { accessToken: { toString: () => "access-token" } },
+    } as Awaited<ReturnType<typeof fetchAuthSession>>);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("calls the Lambda with the bearer token and disposition, returns the presigned URL", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ url: "https://signed.s3.example/file.pdf?Signature=abc" }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const url = await resolveArtifactPresignedUrl(
+      "https://lambda.example/?threadId=t1&kind=field-brief",
+      "inline",
+    );
+
+    expect(url).toBe("https://signed.s3.example/file.pdf?Signature=abc");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new URL(calledUrl).searchParams.get("disposition")).toBe("inline");
+    expect(new URL(calledUrl).searchParams.get("threadId")).toBe("t1");
+    expect((calledInit.headers as Record<string, string>).authorization).toBe(
+      "Bearer access-token",
+    );
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("Artifact not found.", { status: 404 })),
+    );
+
+    await expect(
+      resolveArtifactPresignedUrl("https://lambda.example/?threadId=t&kind=playbook", "attachment"),
+    ).rejects.toThrow(/404/);
+  });
+
+  it("throws when the session has no access token", async () => {
+    fetchAuthSessionMock.mockResolvedValueOnce({} as Awaited<ReturnType<typeof fetchAuthSession>>);
+
+    await expect(
+      resolveArtifactPresignedUrl("https://lambda.example/?threadId=t&kind=playbook", "inline"),
+    ).rejects.toThrow(/sign in/i);
   });
 });

@@ -137,7 +137,7 @@ const chatStreamingUrl = chatStreamingFunction.addFunctionUrl({
       "user-agent",
       "x-request-id",
     ],
-    allowedMethods: [HttpMethod.POST],
+    allowedMethods: [HttpMethod.GET, HttpMethod.POST],
     allowedOrigins: chatStreamingAllowedOrigins,
     exposedHeaders: ["x-error-code", "x-request-id"],
     maxAge: Duration.seconds(600),

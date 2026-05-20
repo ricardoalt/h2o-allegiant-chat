@@ -365,7 +365,8 @@ const slugFor = (payload: { customer?: { slug?: string; name?: string } }): stri
   payload.customer?.slug ?? payload.customer?.name ?? null;
 
 const pdfDownloadUrl = (ctx: ArtifactRequestContext, kind: ArtifactKind): string => {
-  const path = `/api/threads/${encodeURIComponent(ctx.threadId)}/artifacts/${kind}/pdf`;
+  const query = new URLSearchParams({ threadId: ctx.threadId, kind });
+  const path = `?${query.toString()}`;
   return ctx.baseUrl ? new URL(path, ctx.baseUrl).toString() : path;
 };
 

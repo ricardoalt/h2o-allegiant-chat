@@ -1,9 +1,10 @@
 "use client";
 
 import type { ToolUIPart } from "ai";
+import { fetchAuthSession } from "aws-amplify/auth";
 import { DownloadIcon, ExternalLinkIcon } from "lucide-react";
 import type * as React from "react";
-import type { ComponentType, SVGProps } from "react";
+import { type ComponentType, type SVGProps, useState } from "react";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import type { ArtifactToolUIOutput } from "@/types/ui-message";
 
@@ -17,12 +18,32 @@ export type ArtifactToolCardProps = {
   errorText?: string;
 };
 
-export const artifactViewUrl = (downloadUrl: string): string => {
-  const url = new URL(downloadUrl, "http://artifact.local");
-  url.searchParams.set("disposition", "inline");
-  const path = `${url.pathname}${url.search}${url.hash}`;
+type PresignDisposition = "inline" | "attachment";
 
-  return url.origin === "http://artifact.local" ? path : url.toString();
+type PresignResponse = { url?: unknown };
+
+export const resolveArtifactPresignedUrl = async (
+  downloadUrl: string,
+  disposition: PresignDisposition,
+): Promise<string> => {
+  const session = await fetchAuthSession();
+  const token = session.tokens?.accessToken?.toString();
+  if (!token) {
+    throw new Error("Sign in to download artifacts.");
+  }
+  const requestUrl = new URL(downloadUrl, "http://artifact.local");
+  requestUrl.searchParams.set("disposition", disposition);
+  const response = await fetch(requestUrl.toString(), {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Artifact request failed (${response.status}).`);
+  }
+  const body = (await response.json()) as PresignResponse;
+  if (typeof body.url !== "string" || body.url.length === 0) {
+    throw new Error("Artifact response did not include a URL.");
+  }
+  return body.url;
 };
 
 export function ArtifactToolCard({
@@ -91,45 +112,13 @@ export function ArtifactToolCard({
 
   const pdf = output?.status === "ready" ? output.formats[0] : undefined;
   if (state === "output-available" && pdf?.downloadUrl) {
-    const displayTitle = output?.title ?? title;
-    const filename = pdf.filename;
-    const viewUrl = artifactViewUrl(pdf.downloadUrl);
     return (
-      <div className="not-prose w-full rounded-lg border bg-card px-3 py-3 sm:max-w-sm">
-        <div className="flex items-start gap-3">
-          <Icon aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-xs">{displayTitle}</p>
-            <p className="truncate text-muted-foreground text-xs" title={filename}>
-              {filename}
-            </p>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <a
-            aria-label={`View ${filename} in a new tab`}
-            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 font-medium text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            href={viewUrl}
-            rel="noopener noreferrer"
-            target="_blank"
-            title={`View ${filename}`}
-          >
-            <ExternalLinkIcon aria-hidden className="size-3.5" />
-            View
-          </a>
-          <a
-            aria-label={`Download ${filename}`}
-            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 font-medium text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            download={filename}
-            href={pdf.downloadUrl}
-            rel="noopener noreferrer"
-            title={`Download ${filename}`}
-          >
-            <DownloadIcon aria-hidden className="size-3.5" />
-            Download
-          </a>
-        </div>
-      </div>
+      <ReadyArtifactCard
+        Icon={Icon}
+        title={output?.title ?? title}
+        filename={pdf.filename}
+        downloadUrl={pdf.downloadUrl}
+      />
     );
   }
 
@@ -144,6 +133,86 @@ export function ArtifactToolCard({
           </Shimmer>
         </div>
       </div>
+    </div>
+  );
+}
+
+type ReadyArtifactCardProps = {
+  Icon: ArtifactCardIcon;
+  title: string;
+  filename: string;
+  downloadUrl: string;
+};
+
+function ReadyArtifactCard({
+  Icon,
+  title,
+  filename,
+  downloadUrl,
+}: ReadyArtifactCardProps): React.JSX.Element {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PresignDisposition | null>(null);
+
+  const open = async (disposition: PresignDisposition): Promise<void> => {
+    setError(null);
+    setPending(disposition);
+    try {
+      const url = await resolveArtifactPresignedUrl(downloadUrl, disposition);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open artifact.");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const buttonClass =
+    "inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 font-medium text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+
+  return (
+    <div className="not-prose w-full rounded-lg border bg-card px-3 py-3 sm:max-w-sm">
+      <div className="flex items-start gap-3">
+        <Icon aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-xs">{title}</p>
+          <p className="truncate text-muted-foreground text-xs" title={filename}>
+            {filename}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          aria-label={`View ${filename} in a new tab`}
+          className={buttonClass}
+          disabled={pending !== null}
+          onClick={() => {
+            void open("inline");
+          }}
+          title={`View ${filename}`}
+        >
+          <ExternalLinkIcon aria-hidden className="size-3.5" />
+          {pending === "inline" ? "Opening…" : "View"}
+        </button>
+        <button
+          type="button"
+          aria-label={`Download ${filename}`}
+          className={buttonClass}
+          disabled={pending !== null}
+          onClick={() => {
+            void open("attachment");
+          }}
+          title={`Download ${filename}`}
+        >
+          <DownloadIcon aria-hidden className="size-3.5" />
+          {pending === "attachment" ? "Preparing…" : "Download"}
+        </button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-destructive/90 text-xs" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

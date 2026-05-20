@@ -101,10 +101,10 @@ describe("Lambda Function URL runtime adapter", () => {
   });
 
   it("returns a method rejection response for unsupported methods", async () => {
-    const response = rejectUnsupportedMethod("GET");
+    const response = rejectUnsupportedMethod("PUT");
 
     expect(response.status).toBe(405);
-    expect(response.headers.get("allow")).toBe("POST, OPTIONS");
+    expect(response.headers.get("allow")).toBe("GET, POST, OPTIONS");
     await expect(response.text()).resolves.toBe("Method not allowed.");
   });
 
@@ -118,7 +118,7 @@ describe("Lambda Function URL runtime adapter", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe(
       "https://main.d22icjbzj7x471.amplifyapp.com",
     );
-    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-methods")).toBe("GET, POST, OPTIONS");
     expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
   });
 

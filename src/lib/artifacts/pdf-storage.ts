@@ -5,6 +5,7 @@ import {
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { ArtifactKind } from "@/lib/artifacts/artifact-store";
 import {
   bodyToBuffer,
@@ -12,6 +13,17 @@ import {
   requiredEnv,
   sanitizePathSegment,
 } from "@/lib/storage/s3-utils";
+
+export type PdfPresignDisposition = "inline" | "attachment";
+
+export type PdfPresignInput = {
+  userId: string;
+  threadId: string;
+  kind: ArtifactKind;
+  disposition: PdfPresignDisposition;
+  filename: string;
+  expiresInSeconds: number;
+};
 
 // Storage abstraction for rendered PDF bytes. Keys are deterministic from
 // (userId, threadId, kind) so regenerations overwrite the previous PDF
@@ -28,6 +40,7 @@ export interface ArtifactPdfStorage {
   // best-effort delete here. Implementations must NOT throw if the key
   // doesn't exist (treat NoSuchKey/NotFound as success).
   delete(input: { userId: string; threadId: string; kind: ArtifactKind }): Promise<void>;
+  presign(input: PdfPresignInput): Promise<string>;
 }
 
 export const buildPdfStorageKey = ({
@@ -132,6 +145,30 @@ export class S3ArtifactPdfStorage implements ArtifactPdfStorage {
       throw error;
     }
   }
+
+  async presign({
+    userId,
+    threadId,
+    kind,
+    disposition,
+    filename,
+    expiresInSeconds,
+  }: PdfPresignInput): Promise<string> {
+    const key = buildPdfStorageKey({ prefix: this.prefix, userId, threadId, kind });
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ResponseContentDisposition: `${disposition}; filename="${filename}"`,
+      ResponseContentType: "application/pdf",
+    });
+    // The presigner ships its own nested copy of @smithy/types, so the SDK
+    // client and command structurally match but TS can't unify the two
+    // copies of the type. Cast at the boundary; runtime shape is correct.
+    type PresignArgs = Parameters<typeof getSignedUrl>;
+    return getSignedUrl(this.client as PresignArgs[0], command as PresignArgs[1], {
+      expiresIn: expiresInSeconds,
+    });
+  }
 }
 
 export class InMemoryArtifactPdfStorage implements ArtifactPdfStorage {
@@ -177,6 +214,18 @@ export class InMemoryArtifactPdfStorage implements ArtifactPdfStorage {
   }): Promise<void> {
     const key = buildPdfStorageKey({ prefix: "", userId, threadId, kind });
     this.store.delete(key);
+  }
+
+  async presign({
+    userId,
+    threadId,
+    kind,
+    disposition,
+    filename,
+  }: PdfPresignInput): Promise<string> {
+    const key = buildPdfStorageKey({ prefix: "", userId, threadId, kind });
+    const params = new URLSearchParams({ disposition, filename });
+    return `https://in-memory.test/${key}?${params.toString()}`;
   }
 }
 

@@ -10,6 +10,7 @@ import {
 import { createChatPostHandler } from "@/lib/chat-handler";
 import { createLambdaS3BlobStoreFromEnv } from "@/lib/storage/lambda-blob-store";
 import { createLambdaDynamoDbChatStoreFromEnv } from "@/lib/storage/lambda-chat-store";
+import { handleArtifactPresign } from "./artifact-presign";
 import { createChatStreamLogger, createCorrelationId } from "./observability";
 import {
   buildCorsPreflightResponse,
@@ -111,7 +112,7 @@ export const handleChatStreamingRequest = async (
     return;
   }
 
-  if (method !== "POST") {
+  if (method !== "POST" && method !== "GET") {
     await pipeResponseToStream(rejectUnsupportedMethod(method), responseStream, {
       decorateResponseStream,
     });
@@ -150,18 +151,37 @@ export const handleChatStreamingRequest = async (
     });
     const authorizationHeader = request.headers.get("authorization") ?? undefined;
     const getOwner = createLambdaOwnerResolver({ authorizationHeader, verifier });
+
+    const chatStore = createLambdaDynamoDbChatStoreFromEnv();
+    const artifactStore = createLambdaDynamoDbArtifactStoreFromEnv();
+    const pdfStorage = createS3ArtifactPdfStorageFromEnv();
+
+    if (method === "GET") {
+      const response = await handleArtifactPresign(request, {
+        artifactStore,
+        chatStore,
+        getOwner,
+        pdfStorage,
+      });
+      logger.info("handler_result", { status: response.status });
+      await pipeResponseToStream(response, responseStream, { decorateResponseStream });
+      logger.info("stream_event", { completed: true });
+      return;
+    }
+
     const owner = await getOwner();
     logger.info("auth_result", { success: true });
 
-    const chatStore = createLambdaDynamoDbChatStoreFromEnv();
     const blobStore = createLambdaS3BlobStoreFromEnv(process.env as Record<string, string>, owner);
-    const artifactStore = createLambdaDynamoDbArtifactStoreFromEnv();
-    const pdfStorage = createS3ArtifactPdfStorageFromEnv();
+    const artifactBaseUrl = event.requestContext?.domainName
+      ? `https://${event.requestContext.domainName}/`
+      : undefined;
     const handler = createChatPostHandler({
       chatStore,
       blobStore,
       artifactStore,
       pdfStorage,
+      artifactBaseUrl,
       createAgent,
       generateText,
       getOwner: async () => owner,
