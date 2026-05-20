@@ -11,6 +11,7 @@ import {
   MinimalHeader,
   SectionHeader,
   StatusBanner,
+  tier2ContinuationTopReserve,
 } from "./shared-document";
 
 // ─── Pure helpers (testable, no React) ───────────────────────────────────────
@@ -33,6 +34,54 @@ export const collectTableHeaders = (rows: Array<Record<string, string>>): string
 };
 
 type SharedFlagSeverity = "stop" | "specialist" | "attention" | "clear";
+
+type AnalyticalGateState = "OPEN" | "OPEN-WITH-CONDITIONS" | "CONDITIONALLY-OPEN" | "CLOSED";
+type AnalyticalGateSeverity = "open" | "open-with-conditions" | "conditionally-open" | "closed";
+
+export type AnalyticalGateBanner = {
+  state: AnalyticalGateState;
+  severity: AnalyticalGateSeverity;
+  label: string;
+};
+
+const analyticalGateBannerByState: Record<AnalyticalGateState, AnalyticalGateBanner> = {
+  CLOSED: {
+    label: "QUALIFICATION GATE — CLOSED",
+    severity: "closed",
+    state: "CLOSED",
+  },
+  "CONDITIONALLY-OPEN": {
+    label: "QUALIFICATION GATE — CONDITIONALLY OPEN",
+    severity: "conditionally-open",
+    state: "CONDITIONALLY-OPEN",
+  },
+  OPEN: {
+    label: "QUALIFICATION GATE — OPEN",
+    severity: "open",
+    state: "OPEN",
+  },
+  "OPEN-WITH-CONDITIONS": {
+    label: "QUALIFICATION GATE — OPEN (with conditions)",
+    severity: "open-with-conditions",
+    state: "OPEN-WITH-CONDITIONS",
+  },
+};
+
+export const normalizeGateState = (raw?: string): AnalyticalGateState => {
+  const normalized = raw?.trim().toUpperCase().replaceAll("_", "-");
+  if (
+    normalized === "OPEN" ||
+    normalized === "OPEN-WITH-CONDITIONS" ||
+    normalized === "CONDITIONALLY-OPEN" ||
+    normalized === "CLOSED"
+  ) {
+    return normalized;
+  }
+  return "CLOSED";
+};
+
+export const gateStateToBanner = (raw?: string): AnalyticalGateBanner =>
+  analyticalGateBannerByState[normalizeGateState(raw)];
 
 export const analyticalFlagSeverity = (raw: string): SharedFlagSeverity => {
   const normalized = raw.toLowerCase().replace(/[^a-z]+/g, " ");
@@ -89,6 +138,8 @@ const subStreamLensRows = (rows: NonNullable<AnalyticalReadPayload["subStreamLen
 const stageGapRows = (rows: NonNullable<AnalyticalReadPayload["stageGapAnalysis"]>) =>
   rows.map((row) => ({ Required: row.required, Status: row.status, Source: row.source }));
 
+export const analyticalReadPagePaddingTop = tier2ContinuationTopReserve;
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -99,7 +150,7 @@ const styles = StyleSheet.create({
     lineHeight: 1.18,
     paddingBottom: 34,
     paddingHorizontal: h2oBrand.page.paddingX,
-    paddingTop: h2oBrand.page.paddingY,
+    paddingTop: analyticalReadPagePaddingTop,
   },
   section: {
     marginBottom: 7,
@@ -223,6 +274,7 @@ const CostRowsTable = ({ rows }: { rows: NonNullable<AnalyticalReadPayload["cost
 
 export const AnalyticalReadDocument = ({ payload }: { payload: AnalyticalReadPayload }) => {
   const banners = shouldRenderAnalyticalBanners(payload);
+  const gateBanner = gateStateToBanner(payload.gateState);
   const legacySectionTables = payload.sections.flatMap((section) => section.table ?? []);
 
   return (
@@ -256,9 +308,9 @@ export const AnalyticalReadDocument = ({ payload }: { payload: AnalyticalReadPay
         />
         {banners.gate ? (
           <StatusBanner
-            severity="open"
-            label="QUALIFICATION GATE"
-            body={payload.gateContent ?? payload.gateState}
+            severity={gateBanner.severity}
+            label={gateBanner.label}
+            body={payload.gateContent ?? gateBanner.state}
           />
         ) : null}
         {banners.compliance ? (

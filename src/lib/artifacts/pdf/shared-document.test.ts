@@ -2,7 +2,19 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { bannerTone, h2oBrand, severityBg, themeAccentByIndex, themePalette } from "./brand-tokens";
-import { resolveH2oPdfLogoSource, stageBadgeColor } from "./shared-document";
+import {
+  buildMinimalHeaderMetadataLine,
+  resolveH2oPdfLogoSource,
+  stageBadgeColor,
+  tier2ContinuationTopReserve,
+} from "./shared-document";
+
+describe("tier2ContinuationTopReserve", () => {
+  it("reserves enough deterministic top space for Tier 2 fixed continuation headers", () => {
+    expect(tier2ContinuationTopReserve).toBe(48);
+    expect(tier2ContinuationTopReserve).toBeGreaterThanOrEqual(48);
+  });
+});
 
 describe("resolveH2oPdfLogoSource", () => {
   it("resolves the sidebar logo asset from public for server-side PDF rendering", () => {
@@ -21,18 +33,76 @@ describe("resolveH2oPdfLogoSource", () => {
 
 describe("stageBadgeColor", () => {
   it.each([
-    ["Lead", h2oBrand.colors.stage.lead],
-    ["Qualify", h2oBrand.colors.stage.qualify],
-    ["Scope", h2oBrand.colors.stage.scope],
-    ["Position", h2oBrand.colors.stage.position],
-    ["Propose", h2oBrand.colors.stage.propose],
-    ["Close", h2oBrand.colors.stage.close],
-  ])("maps %s to its semantic stage color", (stage, color) => {
+    ["Lead", "#64748B"],
+    ["Qualify", "#D97706"],
+    ["Scope", "#0090F0"],
+    ["Position", "#03045E"],
+    ["Propose", "#15803D"],
+    ["Close", "#15803D"],
+  ])("maps %s to the boss-reference semantic stage color", (stage, color) => {
     expect(stageBadgeColor(stage)).toBe(color);
   });
 
   it("uses the muted fallback for unknown stages", () => {
-    expect(stageBadgeColor("Unknown")).toBe(h2oBrand.colors.stage.default);
+    expect(stageBadgeColor("Unknown")).toBe("#64748B");
+  });
+
+  it("keeps explicit stage token values aligned to brand.py", () => {
+    expect(h2oBrand.colors.stage).toMatchObject({
+      lead: "#64748B",
+      qualify: "#D97706",
+      scope: "#0090F0",
+      position: "#03045E",
+      propose: "#15803D",
+      close: "#15803D",
+      default: "#64748B",
+    });
+  });
+});
+
+describe("buildMinimalHeaderMetadataLine", () => {
+  it("renders location, basin, date, artifact label, and internal handover when populated", () => {
+    expect(
+      buildMinimalHeaderMetadataLine({
+        county: "Reeves County",
+        state: "TX",
+        basin: "Pecos",
+        date: "2026-05-20",
+        artifactLabel: "Playbook",
+      }),
+    ).toBe("Reeves County, TX (Pecos) · 2026-05-20 · Playbook · Internal handover");
+  });
+
+  it("omits location and date without malformed separators when optional tokens are absent", () => {
+    expect(buildMinimalHeaderMetadataLine({ artifactLabel: "Analytical Read" })).toBe(
+      "Analytical Read · Internal handover",
+    );
+  });
+
+  it("omits basin when county/state location is incomplete", () => {
+    expect(
+      buildMinimalHeaderMetadataLine({
+        county: "Reeves County",
+        basin: "Pecos",
+        date: "2026-05-20",
+        artifactLabel: "Proposal Shell",
+      }),
+    ).toBe("2026-05-20 · Proposal Shell · Internal handover");
+  });
+
+  it("trims tokens and never emits leading commas, empty parentheses, or doubled separators", () => {
+    const metadata = buildMinimalHeaderMetadataLine({
+      county: "  ",
+      state: " TX ",
+      basin: "  Pecos  ",
+      date: "  ",
+      artifactLabel: " Playbook ",
+    });
+
+    expect(metadata).toBe("Playbook · Internal handover");
+    expect(metadata).not.toContain(",");
+    expect(metadata).not.toContain("()");
+    expect(metadata).not.toContain("·  ·");
   });
 });
 
@@ -153,6 +223,19 @@ describe("MinimalHeader (smoke render)", () => {
       }),
     );
     expect(pdf.byteLength).toBeGreaterThan(500);
+  });
+
+  it("renders a valid PDF when location and date metadata are missing", async () => {
+    const pdf = await renderDoc(
+      createElement(MinimalHeader, {
+        customerName: "Prairie Water",
+        artifactLabel: "Proposal Shell",
+      }),
+    );
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    expect(buildMinimalHeaderMetadataLine({ artifactLabel: "Proposal Shell" })).toBe(
+      "Proposal Shell · Internal handover",
+    );
   });
 });
 

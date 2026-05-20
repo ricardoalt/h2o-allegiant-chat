@@ -87,50 +87,45 @@ export const fieldBriefInputSchema = z.object({
   }),
 });
 
-export const playbookInputSchema = z.object({
-  customer: customerSchema,
-  stage: stageSchema.optional(),
-  title: z.string().default("Conversation Playbook"),
-  orientation: z.string().optional(),
-  /**
-   * Optional document-level header fields for MinimalHeader rendering (Slice D).
-   * Prefer spec names: subStreams, stageIntro, insight. Backward-compatible
-   * aliases remain accepted: subStreamsSummary, leadStageIntro, stageInsight.
-   */
-  header: z
-    .object({
-      subStreams: z.array(z.string()).optional(),
-      stageIntro: z.string().optional(),
-      insight: z.string().optional(),
-      subStreamsSummary: z.string().optional(),
-      leadStageIntro: z.string().optional(),
-      stageInsight: z.string().optional(),
-    })
-    .optional(),
-  themes: z
-    .array(
-      z.object({
-        title: z.string().min(1),
-        framing: z.string().optional(),
-        questions: z.array(z.string().min(1)).min(1).max(5),
-        substreamTag: z.string().optional(),
-        /**
-         * Populate with 1–3 sentences explaining why this theme matters to the
-         * customer at this stage. Rendered as a WhyItMattersCallout panel below
-         * the theme title (Slice D).
-         */
-        whyItMatters: z.array(z.string()).optional(),
-        /**
-         * Explicit theme palette index (0-based). When absent the renderer uses
-         * the theme's position in the array. Use accentIndex to pin a specific
-         * accent color when theme ordering changes across revisions.
-         */
-        accentIndex: z.number().int().nonnegative().optional(),
-      }),
-    )
-    .min(1)
-    .max(11),
-});
+export const playbookInputSchema = z
+  .object({
+    customer: customerSchema,
+    stage: stageSchema.optional(),
+    title: z.string().default("Conversation Playbook"),
+    /** Optional document-level header fields for MinimalHeader rendering. */
+    header: z
+      .object({
+        subStreams: z.array(z.string()).optional(),
+        stageIntro: z.string().optional(),
+        insight: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    themes: z
+      .array(
+        z.object({
+          title: z.string().min(1),
+          framing: z.string().optional(),
+          questions: z.array(z.string().min(1)).min(1).max(5),
+          substreamTag: z.string().optional(),
+          /**
+           * Populate with 1–3 sentences explaining why this theme matters to the
+           * customer at this stage. Rendered as a WhyItMattersCallout panel below
+           * the theme title (Slice D).
+           */
+          whyItMatters: z.array(z.string()).optional(),
+          /**
+           * Explicit theme palette index (0-based). When absent the renderer uses
+           * the theme's position in the array. Use accentIndex to pin a specific
+           * accent color when theme ordering changes across revisions.
+           */
+          accentIndex: z.number().int().nonnegative().optional(),
+        }),
+      )
+      .min(1)
+      .max(11),
+  })
+  .strict();
 
 /** Shared severity enum used by flags and per-section confidence */
 const flagSeveritySchema = z.enum(["STOP", "SPECIALIST", "ATTENTION", "CLEAR"]);
@@ -227,10 +222,14 @@ export const proposalShellInputSchema = z.object({
   proposedScope: z.array(z.string().min(1)).min(1),
   sizingAndPricing: z.string().min(1),
   schedule: z.string().min(1),
-  commitments: z.object({
-    commitTo: z.array(z.string()).default([]),
-    doNotCommitYet: z.array(z.string()).default([]),
-  }),
+  commitments: z.array(
+    z.object({
+      label: z.string().min(1),
+      text: z.string().min(1),
+      date: z.string().optional(),
+      owner: z.string().optional(),
+    }),
+  ),
   fundingPathway: z.string().optional(),
   riskAllocation: z.string().optional(),
   /**
@@ -293,25 +292,6 @@ export const proposalShellInputSchema = z.object({
       z.object({
         gate: z.string().min(1),
         closer: z.string().min(1),
-      }),
-    )
-    .optional(),
-  /**
-   * Typed commitments with structured date and owner fields. Use instead of
-   * (or alongside) the legacy string-array commitments object when you need
-   * a two-column table view with ownership and timeline. date is ISO-8601 or
-   * natural language; owner is a team or person name.
-   *
-   * Decision: parallel field (not in-place mutation of commitments) to avoid
-   * breaking the existing commitments object shape and legacy callers.
-   */
-  commitmentsTyped: z
-    .array(
-      z.object({
-        label: z.string().min(1),
-        text: z.string().min(1),
-        date: z.string().optional(),
-        owner: z.string().optional(),
       }),
     )
     .optional(),
@@ -596,7 +576,7 @@ export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
   generatePlaybook: tool({
     description:
       "Render and persist the H2O Conversation Playbook PDF — themed question structure (1-2 pages) the field agent uses in the next customer conversation. Returns the PDF download URL. " +
-      "Prefer header.subStreams (array), header.stageIntro, and header.insight for the Playbook header; backward-compatible aliases header.subStreamsSummary, header.leadStageIntro, and header.stageInsight are still accepted. " +
+      "Use header.subStreams, header.stageIntro, and header.insight for Playbook header context. " +
       "Populate themes[].whyItMatters (1-3 strings) when each theme needs a 'Why it matters' callout panel below the theme title. " +
       "Use themes[].accentIndex to pin a specific theme palette index when theme ordering changes across revisions.",
     inputSchema: playbookInputSchema,
@@ -629,7 +609,7 @@ export const createH2oArtifactTools = (ctx: ArtifactRequestContext) => ({
       "Populate sizingRows for a KVTable of commercial shape (CAPEX range, confidence, O&M impact) when structured display is clearer than prose. " +
       "Populate outOfScope items (heading + body) to set explicit exclusions; each renders as a bold heading followed by a paragraph. " +
       "Populate gatesToClose when qualification gates remain open; renders as a two-column DataTable of gate description and closer. " +
-      "Populate commitmentsTyped (label, text, optional date, optional owner) for a structured two-column commitments table; use alongside or instead of the legacy commitments object.",
+      "Populate commitments with enriched commitment cards (label, text, optional date, optional owner).",
     inputSchema: proposalShellInputSchema,
     execute: (input, { toolCallId }) =>
       runArtifactTool({ ctx, kind: "proposal-shell", input, toolCallId }),

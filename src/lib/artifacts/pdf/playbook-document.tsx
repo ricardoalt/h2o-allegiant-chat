@@ -6,6 +6,7 @@ import {
   InsightBox,
   MinimalContinuationHeader,
   MinimalHeader,
+  tier2ContinuationTopReserve,
   WhyItMattersCallout,
 } from "./shared-document";
 
@@ -47,25 +48,17 @@ export const playbookContinuationLabel = (customerName: string): string =>
   `${customerName} · Playbook (continued)`;
 
 export type ResolvedPlaybookHeaderFields = {
-  subStreamsSummary?: string;
+  subStreamsLine?: string;
   stageIntro?: string;
   insight?: string;
 };
 
-/**
- * Resolves spec-name Playbook header fields with backward-compatible aliases.
- * Preference order: spec names first, then aliases, then legacy orientation for insight.
- */
 export const resolvePlaybookHeaderFields = (
   header?: PlaybookPayload["header"],
-  legacyOrientation?: string,
 ): ResolvedPlaybookHeaderFields => ({
-  subStreamsSummary:
-    header?.subStreams && header.subStreams.length > 0
-      ? header.subStreams.join(", ")
-      : header?.subStreamsSummary,
-  stageIntro: header?.stageIntro ?? header?.leadStageIntro,
-  insight: header?.insight ?? header?.stageInsight ?? legacyOrientation,
+  subStreamsLine: header?.subStreams?.length ? header.subStreams.join(", ") : undefined,
+  stageIntro: header?.stageIntro,
+  insight: header?.insight,
 });
 
 export const resolvePlaybookThemeAccent = (
@@ -80,6 +73,8 @@ export const resolvePlaybookThemeAccent = (
 export const shouldRenderWhyItMatters = (items?: string[]): boolean =>
   Array.isArray(items) && items.length > 0;
 
+export const playbookPagePaddingTop = tier2ContinuationTopReserve;
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -90,14 +85,11 @@ const styles = StyleSheet.create({
     lineHeight: 1.18,
     paddingBottom: 34,
     paddingHorizontal: 44,
-    paddingTop: 34,
-  },
-  pageWithContinuation: {
-    paddingTop: 48,
+    paddingTop: playbookPagePaddingTop,
   },
   // Sub-streams summary line — italic, muted, below MinimalHeader
   // Per discovery #4773: use "Helvetica-Oblique" for italic text (not fontStyle on a bold family)
-  subStreamsSummary: {
+  subStreamsLine: {
     color: "#64748B",
     fontFamily: "Helvetica-Oblique",
     fontSize: 8,
@@ -106,7 +98,7 @@ const styles = StyleSheet.create({
   },
   // Lead-stage intro paragraph — italic, muted
   // Per discovery #4773: "Helvetica-Oblique" for italic body text
-  leadStageIntro: {
+  stageIntro: {
     color: "#64748B",
     fontFamily: "Helvetica-Oblique",
     fontSize: 8.2,
@@ -243,7 +235,7 @@ const ThemeBlock = ({
 };
 
 export const PlaybookDocument = ({ payload }: { payload: PlaybookPayload }) => {
-  const resolvedHeader = resolvePlaybookHeaderFields(payload.header, payload.orientation);
+  const resolvedHeader = resolvePlaybookHeaderFields(payload.header);
 
   return (
     <Document
@@ -276,15 +268,13 @@ export const PlaybookDocument = ({ payload }: { payload: PlaybookPayload }) => {
           date=""
           artifactLabel="Playbook"
         />
-        {/* Sub-streams summary line — italic, muted (R7) */}
-        {resolvedHeader.subStreamsSummary ? (
-          <Text style={styles.subStreamsSummary}>{resolvedHeader.subStreamsSummary}</Text>
+        {resolvedHeader.subStreamsLine ? (
+          <Text style={styles.subStreamsLine}>{resolvedHeader.subStreamsLine}</Text>
         ) : null}
-        {/* Lead-stage intro paragraph — italic (R7) */}
         {resolvedHeader.stageIntro ? (
-          <Text style={styles.leadStageIntro}>{resolvedHeader.stageIntro}</Text>
+          <Text style={styles.stageIntro}>{resolvedHeader.stageIntro}</Text>
         ) : null}
-        {/* Stage insight box (R7) with legacy orientation fallback */}
+        {/* Stage insight box (R7) */}
         {resolvedHeader.insight ? <InsightBox>{resolvedHeader.insight}</InsightBox> : null}
         {payload.themes.map((theme, index) => (
           <ThemeBlock key={theme.title} index={index} theme={theme} />

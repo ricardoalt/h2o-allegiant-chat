@@ -41,44 +41,44 @@ Three reasonable mental references for the register: Linear's documentation, Str
 
 Drawn from the logo directly. These appear in headers, accents, and brand-identity moments.
 
-| Token | Hex | Use |
-|---|---|---|
+| Token        | Hex       | Use                                                                                                   |
+| ------------ | --------- | ----------------------------------------------------------------------------------------------------- |
 | `BRAND_NAVY` | `#03045E` | Allegiant wordtext, primary section headers, footer text, gate/flag callout text on light backgrounds |
-| `BRAND_BLUE` | `#0090F0` | H2O wordtext, droplet body, links, secondary accents, theme headers in Playbook |
-| `BRAND_CYAN` | `#ADFDFF` | Droplet highlight, light background for strategic-insight callout, very subtle accent |
+| `BRAND_BLUE` | `#0090F0` | H2O wordtext, droplet body, links, secondary accents, theme headers in Playbook                       |
+| `BRAND_CYAN` | `#ADFDFF` | Droplet highlight, light background for strategic-insight callout, very subtle accent                 |
 
 ### Tier 2 — Functional accents
 
 Used for gate-status traffic-light and flag-severity callouts. These are **never** primary brand colours — they are functional indicators with deliberate associations (red = stop, amber = caution, green = ready, slate = neutral).
 
-| Token | Hex | Use |
-|---|---|---|
-| `GATE_OPEN` | `#15803D` | OPEN gate callout (all criteria met, ready for Assessment) |
-| `GATE_CONDITIONAL` | `#D97706` | OPEN-with-conditions or CONDITIONALLY-OPEN gate callout |
-| `GATE_CLOSED` | `#B91C1C` | CLOSED gate callout |
-| `FLAG_STOP` | `#B91C1C` | Stop-flag callout (matches GATE_CLOSED — same severity weight) |
-| `FLAG_SPECIALIST` | `#D97706` | Specialist-flag callout |
-| `FLAG_ATTENTION` | `#CA8A04` | Attention-flag callout (yellow-gold) |
-| `FLAG_CLEAR` | `#64748B` | "No flags" callout — neutral slate, not green (green is reserved for gate OPEN) |
-| `MUTED_TEXT` | `#64748B` | Evidence tags, footnotes, captions, less-important metadata |
-| `BODY_TEXT` | `#0F172A` | Body copy, full opacity, near-black with cool tone (matches navy family) |
-| `LIGHT_BG_NAVY` | `#E8E9F4` | Very light navy tint, for callout backgrounds |
-| `LIGHT_BG_CYAN` | `#F0FDFF` | Very light cyan tint, for strategic-insight callout background |
-| `BORDER_NEUTRAL` | `#CBD5E1` | Subtle borders for tables and callouts |
+| Token              | Hex       | Use                                                                             |
+| ------------------ | --------- | ------------------------------------------------------------------------------- |
+| `GATE_OPEN`        | `#15803D` | OPEN gate callout (all criteria met, ready for Assessment)                      |
+| `GATE_CONDITIONAL` | `#D97706` | OPEN-with-conditions or CONDITIONALLY-OPEN gate callout                         |
+| `GATE_CLOSED`      | `#B91C1C` | CLOSED gate callout                                                             |
+| `FLAG_STOP`        | `#B91C1C` | Stop-flag callout (matches GATE_CLOSED — same severity weight)                  |
+| `FLAG_SPECIALIST`  | `#D97706` | Specialist-flag callout                                                         |
+| `FLAG_ATTENTION`   | `#CA8A04` | Attention-flag callout (yellow-gold)                                            |
+| `FLAG_CLEAR`       | `#64748B` | "No flags" callout — neutral slate, not green (green is reserved for gate OPEN) |
+| `MUTED_TEXT`       | `#64748B` | Evidence tags, footnotes, captions, less-important metadata                     |
+| `BODY_TEXT`        | `#0F172A` | Body copy, full opacity, near-black with cool tone (matches navy family)        |
+| `LIGHT_BG_NAVY`    | `#E8E9F4` | Very light navy tint, for callout backgrounds                                   |
+| `LIGHT_BG_CYAN`    | `#F0FDFF` | Very light cyan tint, for strategic-insight callout background                  |
+| `BORDER_NEUTRAL`   | `#CBD5E1` | Subtle borders for tables and callouts                                          |
 
 ### Tier 3 — Chart accent palette
 
 Seven colours designed to coexist as series colours in charts. Use only in data visualisations; do not use as primary brand or functional accents. Order matters — use in sequence for chart series.
 
-| Position | Token | Hex | Description |
-|---|---|---|---|
-| 1 | `CHART_BLUE` | `#0090F0` | Brand blue (matches BRAND_BLUE) |
-| 2 | `CHART_TEAL` | `#0D9488` | Teal — pairs with blue |
-| 3 | `CHART_SLATE` | `#475569` | Slate grey — neutral series |
-| 4 | `CHART_PURPLE` | `#7C3AED` | Soft purple — for distinct categories |
-| 5 | `CHART_GOLD` | `#CA8A04` | Muted gold (matches FLAG_ATTENTION) |
-| 6 | `CHART_CORAL` | `#E11D48` | Soft coral — for negative/decline indicators |
-| 7 | `CHART_FOREST` | `#15803D` | Forest green (matches GATE_OPEN) |
+| Position | Token          | Hex       | Description                                  |
+| -------- | -------------- | --------- | -------------------------------------------- |
+| 1        | `CHART_BLUE`   | `#0090F0` | Brand blue (matches BRAND_BLUE)              |
+| 2        | `CHART_TEAL`   | `#0D9488` | Teal — pairs with blue                       |
+| 3        | `CHART_SLATE`  | `#475569` | Slate grey — neutral series                  |
+| 4        | `CHART_PURPLE` | `#7C3AED` | Soft purple — for distinct categories        |
+| 5        | `CHART_GOLD`   | `#CA8A04` | Muted gold (matches FLAG_ATTENTION)          |
+| 6        | `CHART_CORAL`  | `#E11D48` | Soft coral — for negative/decline indicators |
+| 7        | `CHART_FOREST` | `#15803D` | Forest green (matches GATE_OPEN)             |
 
 `CHART_PALETTE` is a list of these seven in order. When more than seven series are needed, recycle from the start with a slightly reduced opacity.
 
@@ -88,11 +88,11 @@ Seven colours designed to coexist as series colours in charts. Use only in data 
 
 Three fonts, each with a fallback:
 
-| Token | Primary | Fallback | Use |
-|---|---|---|---|
-| `HEADING_FONT` | Inter Tight | Helvetica-Bold | Section headers, theme headers, cover titles |
-| `BODY_FONT` | Inter | Helvetica | Body copy, callout content, table cells |
-| `MONO_FONT` | JetBrains Mono | Courier | Evidence tags `[ER-001]`, document IDs, code, structured data |
+| Token          | Primary        | Fallback       | Use                                                           |
+| -------------- | -------------- | -------------- | ------------------------------------------------------------- |
+| `HEADING_FONT` | Inter Tight    | Helvetica-Bold | Section headers, theme headers, cover titles                  |
+| `BODY_FONT`    | Inter          | Helvetica      | Body copy, callout content, table cells                       |
+| `MONO_FONT`    | JetBrains Mono | Courier        | Evidence tags `[ER-001]`, document IDs, code, structured data |
 
 ### Font registration
 
@@ -102,18 +102,18 @@ The fallback is deliberate: production deployments should install the Inter and 
 
 ### Type scale
 
-| Style | Size | Weight | Use |
-|---|---|---|---|
-| `h1` | 18pt | Bold | PDF cover title |
-| `h2` | 14pt | Bold | Section headers (numbered sections) |
-| `h3` | 11pt | Bold | Sub-section headers (A/B/C) |
-| `body` | 10pt | Regular | Body copy, bullets |
-| `body_bold` | 10pt | Bold | Section lead sentences in Analytical |
-| `body_italic` | 10pt | Italic | Closing caveats, framing lines |
-| `mono_small` | 9pt | Regular | Evidence tags, document IDs |
-| `caption` | 9pt | Regular | Captions, table footnotes, muted metadata |
-| `cover_subtitle` | 11pt | Italic | PDF cover subtitle |
-| `strategic_insight` | 13pt | Italic | Strategic insight callout (centred) |
+| Style               | Size | Weight  | Use                                       |
+| ------------------- | ---- | ------- | ----------------------------------------- |
+| `h1`                | 18pt | Bold    | PDF cover title                           |
+| `h2`                | 14pt | Bold    | Section headers (numbered sections)       |
+| `h3`                | 11pt | Bold    | Sub-section headers (A/B/C)               |
+| `body`              | 10pt | Regular | Body copy, bullets                        |
+| `body_bold`         | 10pt | Bold    | Section lead sentences in Analytical      |
+| `body_italic`       | 10pt | Italic  | Closing caveats, framing lines            |
+| `mono_small`        | 9pt  | Regular | Evidence tags, document IDs               |
+| `caption`           | 9pt  | Regular | Captions, table footnotes, muted metadata |
+| `cover_subtitle`    | 11pt | Italic  | PDF cover subtitle                        |
+| `strategic_insight` | 13pt | Italic  | Strategic insight callout (centred)       |
 
 Line spacing: 1.25 for body, 1.15 for headers, 1.4 for callouts.
 
@@ -130,6 +130,7 @@ Coloured-bar callout for the h2o-qualification-gate status. Renders at the top o
 - **Content**: title in bold (e.g., "QUALIFICATION GATE — OPEN") followed by content text
 
 Usage:
+
 ```python
 gate_callout("OPEN", "All seven criteria met across all sub-streams in this engagement. Proposed: advance to Assessment.")
 gate_callout("CONDITIONALLY-OPEN", "Sub-streams A and B open; sub-stream C closed on stop-flag X.")
@@ -144,6 +145,7 @@ Coloured-bar callout for the consolidated flag header from `h2o-compliance-and-s
 - **Content**: title bar plus a structured list of flags with severity, ID, evidence pattern (one line each)
 
 Usage:
+
 ```python
 flag_callout("STOP", "Active flags affecting this engagement", [
     ("csflag-consent-decree-milestones-missed", "STOP",
@@ -201,9 +203,15 @@ Three cover templates, one per PDF artefact. Each takes a header line, title, su
 
 Same structure as Ideation cover with different title ("Analytical Read — ...") and subtitle ("The evidenced case behind the ideation").
 
-### `playbook_cover(header_line, title, subtitle, substreams, orientation_line)`
+### Playbook cover/header guidance
 
-Cover without gate/flag callouts (Playbook is a tool, not a record). Includes the orientation line: "The killer questions are in Theme 11. The questions you need to ask first are in Theme 1."
+Cover without gate/flag callouts (Playbook is a tool, not a record). Use the canonical Playbook header fields only:
+
+- `header.subStreams`: ordered sub-stream names or themes to summarize below the header
+- `header.stageIntro`: italic stage-introduction paragraph for the first qualifying conversation
+- `header.insight`: the concise insight callout, e.g. "The killer questions are in Theme 11. The questions you need to ask first are in Theme 1."
+
+Do not emit removed root-level `orientation` or `orientation_line`; the artifact schema rejects them.
 
 ## Table styles
 

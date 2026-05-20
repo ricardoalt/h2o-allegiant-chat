@@ -53,21 +53,14 @@ export type PlaybookPayload = {
   customer: ArtifactCustomer;
   stage?: string;
   title?: string;
-  orientation?: string;
-  /** Document-level header fields for MinimalHeader rendering (Slice D). */
+  /** Document-level header fields for MinimalHeader rendering. */
   header?: {
-    /** Spec-name field: rendered as comma-separated sub-stream summary when populated. */
+    /** Rendered as comma-separated sub-stream summary when populated. */
     subStreams?: string[];
-    /** Spec-name field: rendered as the italic opening stage paragraph when populated. */
+    /** Rendered as the italic opening stage paragraph when populated. */
     stageIntro?: string;
-    /** Spec-name field: rendered as the opening insight box when populated. */
+    /** Rendered as the opening insight box when populated. */
     insight?: string;
-    /** Backward-compatible alias for subStreams. */
-    subStreamsSummary?: string;
-    /** Backward-compatible alias for stageIntro. */
-    leadStageIntro?: string;
-    /** Backward-compatible alias for insight. */
-    stageInsight?: string;
   };
   themes: Array<{
     title: string;
@@ -133,10 +126,12 @@ export type ProposalShellPayload = {
   proposedScope: string[];
   sizingAndPricing: string;
   schedule: string;
-  commitments: {
-    commitTo?: string[];
-    doNotCommitYet?: string[];
-  };
+  commitments: Array<{
+    label: string;
+    text: string;
+    date?: string;
+    owner?: string;
+  }>;
   fundingPathway?: string;
   riskAllocation?: string;
   /** When true (default), renders full-width red DRAFT INTENT banner at top. */
@@ -153,17 +148,6 @@ export type ProposalShellPayload = {
   outOfScope?: Array<{ heading: string; body: string }>;
   /** Gate-close DataTable rows. Renders when non-empty. */
   gatesToClose?: Array<{ gate: string; closer: string }>;
-  /**
-   * Typed commitments with structured date and owner fields.
-   * Parallel field — does not replace the legacy commitments object.
-   * Use when a two-column table view with ownership and timeline is needed.
-   */
-  commitmentsTyped?: Array<{
-    label: string;
-    text: string;
-    date?: string;
-    owner?: string;
-  }>;
 };
 
 const slugify = (value: string): string => {

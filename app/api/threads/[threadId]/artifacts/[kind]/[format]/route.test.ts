@@ -107,7 +107,10 @@ const proposalShellArtifact: ArtifactRecord = {
     proposedScope: ["Modular treatment-stage expansion"],
     sizingAndPricing: "Range $4.2M-$5.8M MEDIUM confidence.",
     schedule: "Mobilise Q3 2026.",
-    commitments: { commitTo: ["Phase-1 scope"], doNotCommitYet: ["Phase-2 sizing"] },
+    commitments: [
+      { label: "Commit to", text: "Phase-1 scope" },
+      { label: "Do not commit yet", text: "Phase-2 sizing" },
+    ],
   } satisfies ProposalShellPayload,
   title: "Proposal Shell",
 };

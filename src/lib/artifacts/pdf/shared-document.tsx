@@ -4,6 +4,8 @@ import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ReactNode } from "react";
 import { bannerTone, h2oBrand, severityBg } from "./brand-tokens";
 
+export const tier2ContinuationTopReserve = 48;
+
 const DEFAULT_LOGO_PATH = join(process.cwd(), "public", "h2o-allegiant.png");
 
 export const resolveH2oPdfLogoSource = (logoPath = DEFAULT_LOGO_PATH): string | null => {
@@ -504,6 +506,41 @@ export const statusBannerAccent = (severity: StatusBannerSeverity): string => {
  * Renders: bold navy title `{customerName} — {site?}`, metadata line with county/state/basin?/date/artifactLabel,
  * followed by a 1px bottom-border rule. No logo, no stage badge.
  */
+export type MinimalHeaderMetadataInput = {
+  artifactLabel: string;
+  basin?: string;
+  county?: string;
+  date?: string;
+  state?: string;
+};
+
+const trimmedOrUndefined = (value?: string): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+export const buildMinimalHeaderMetadataLine = ({
+  artifactLabel,
+  basin,
+  county,
+  date,
+  state,
+}: MinimalHeaderMetadataInput): string => {
+  const normalizedCounty = trimmedOrUndefined(county);
+  const normalizedState = trimmedOrUndefined(state);
+  const normalizedBasin = trimmedOrUndefined(basin);
+  const normalizedDate = trimmedOrUndefined(date);
+  const normalizedArtifactLabel = artifactLabel.trim();
+  const location =
+    normalizedCounty && normalizedState ? `${normalizedCounty}, ${normalizedState}` : undefined;
+  const locationWithBasin =
+    location && normalizedBasin ? `${location} (${normalizedBasin})` : location;
+
+  return [locationWithBasin, normalizedDate, normalizedArtifactLabel, "Internal handover"]
+    .filter(Boolean)
+    .join(" · ");
+};
+
 export const MinimalHeader = ({
   customerName,
   site,
@@ -515,27 +552,25 @@ export const MinimalHeader = ({
 }: {
   customerName: string;
   site?: string;
-  county: string;
-  state: string;
+  county?: string;
+  state?: string;
   basin?: string;
-  date: string;
+  date?: string;
   artifactLabel: string;
 }) => {
   const title = site ? `${customerName} — ${site}` : customerName;
-  const locationParts = [
-    `${county}, ${state}`,
-    basin ? `(${basin})` : null,
-    date,
+  const metadataLine = buildMinimalHeaderMetadataLine({
     artifactLabel,
-    "Internal handover",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+    basin,
+    county,
+    date,
+    state,
+  });
 
   return (
     <View style={newStyles.minimalHeaderWrap}>
       <Text style={newStyles.minimalHeaderTitle}>{title}</Text>
-      <Text style={newStyles.minimalHeaderMeta}>{locationParts}</Text>
+      <Text style={newStyles.minimalHeaderMeta}>{metadataLine}</Text>
     </View>
   );
 };

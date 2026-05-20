@@ -16,11 +16,11 @@ export const h2oBrand = {
     white: "#FFFFFF",
     stage: {
       lead: "#64748B",
-      qualify: "#475569",
+      qualify: "#D97706",
       scope: "#0090F0",
-      position: "#0D9488",
+      position: "#03045E",
       propose: "#15803D",
-      close: "#7C3AED",
+      close: "#15803D",
       default: "#64748B",
     },
     severity: {

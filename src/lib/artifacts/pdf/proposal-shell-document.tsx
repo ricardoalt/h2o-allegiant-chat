@@ -9,12 +9,10 @@ import {
   MinimalContinuationHeader,
   MinimalHeader,
   SectionHeader,
+  tier2ContinuationTopReserve,
 } from "./shared-document";
 
 // ─── Pure helpers (testable, no React) ───────────────────────────────────────
-
-export const proposalCommitBorderColor = (type: "commitTo" | "doNotCommitYet"): string =>
-  type === "commitTo" ? h2oBrand.colors.green : h2oBrand.colors.amber;
 
 /** Returns the left-accent bar color for the executive summary block. */
 export const proposalExecSummaryAccentColor = (): string => h2oBrand.colors.blue;
@@ -36,16 +34,18 @@ export const buildGatesToCloseColumns = (rows: Array<Record<string, string>>) =>
   return keys.map((key) => ({ key, header: key, flexBasis }));
 };
 
-type ProposalTypedCommitment = NonNullable<ProposalShellPayload["commitmentsTyped"]>[number];
+type ProposalCommitment = ProposalShellPayload["commitments"][number];
 
-export const shouldRenderTypedCommitments = (
-  commitments?: ProposalShellPayload["commitmentsTyped"],
+export const shouldRenderCommitments = (
+  commitments?: ProposalShellPayload["commitments"],
 ): boolean => Boolean(commitments?.length);
 
 export const proposalCommitmentMetaLine = (
-  commitment: Pick<ProposalTypedCommitment, "date" | "owner">,
+  commitment: Pick<ProposalCommitment, "date" | "owner">,
 ): string | undefined =>
   [commitment.date, commitment.owner].filter(Boolean).join(" · ") || undefined;
+
+export const proposalShellPagePaddingTop = tier2ContinuationTopReserve;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
     lineHeight: 1.18,
     paddingBottom: 34,
     paddingHorizontal: h2oBrand.page.paddingX,
-    paddingTop: h2oBrand.page.paddingY,
+    paddingTop: proposalShellPagePaddingTop,
   },
   section: {
     marginBottom: 6,
@@ -166,7 +166,7 @@ const BulletList = ({ items }: { items: string[] }) => (
   </View>
 );
 
-const TypedCommitments = ({ items }: { items: ProposalTypedCommitment[] }) => (
+const Commitments = ({ items }: { items: ProposalCommitment[] }) => (
   <View style={styles.commitGrid}>
     {items.map((item) => {
       const meta = proposalCommitmentMetaLine(item);
@@ -182,9 +182,7 @@ const TypedCommitments = ({ items }: { items: ProposalTypedCommitment[] }) => (
 );
 
 export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPayload }) => {
-  const commitTo = payload.commitments.commitTo ?? [];
-  const doNotCommit = payload.commitments.doNotCommitYet ?? [];
-  const typedCommitments = payload.commitmentsTyped ?? [];
+  const commitments = payload.commitments;
   const gatesColumns = buildGatesToCloseColumns(payload.gatesToClose ?? []);
   return (
     <Document
@@ -277,43 +275,10 @@ export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPaylo
             />
           </View>
         ) : null}
-        {shouldRenderTypedCommitments(typedCommitments) || commitTo.length || doNotCommit.length ? (
+        {shouldRenderCommitments(commitments) ? (
           <View style={styles.section} wrap={false}>
             <SectionHeader color={h2oBrand.colors.navy}>Commitments</SectionHeader>
-            {shouldRenderTypedCommitments(typedCommitments) ? (
-              <TypedCommitments items={typedCommitments} />
-            ) : (
-              <View style={styles.commitGrid}>
-                {commitTo.length ? (
-                  <View
-                    style={[
-                      styles.commitCard,
-                      {
-                        borderLeftColor: proposalCommitBorderColor("commitTo"),
-                        borderLeftWidth: 3,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.commitTitle}>Commit to</Text>
-                    <BulletList items={commitTo} />
-                  </View>
-                ) : null}
-                {doNotCommit.length ? (
-                  <View
-                    style={[
-                      styles.commitCard,
-                      {
-                        borderLeftColor: proposalCommitBorderColor("doNotCommitYet"),
-                        borderLeftWidth: 3,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.commitTitle}>Do not commit yet</Text>
-                    <BulletList items={doNotCommit} />
-                  </View>
-                ) : null}
-              </View>
-            )}
+            <Commitments items={commitments} />
           </View>
         ) : null}
         {payload.fundingPathway ? (

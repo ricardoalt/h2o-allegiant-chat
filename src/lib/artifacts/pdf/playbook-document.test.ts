@@ -5,6 +5,7 @@ import {
   buildPlaybookCustomerSite,
   playbookContinuationLabel,
   playbookIsSubPrompt,
+  playbookPagePaddingTop,
   playbookThemeAccentColor,
   playbookThemeHeaderAccentBorderColor,
   renderPlaybookPdf,
@@ -12,12 +13,13 @@ import {
   resolvePlaybookThemeAccent,
   shouldRenderWhyItMatters,
 } from "./playbook-document";
+import { tier2ContinuationTopReserve } from "./shared-document";
 
 const payload: PlaybookPayload = {
   customer: { location: "Prairie, TX", name: "Prairie Water", slug: "prairie-water" },
   stage: "Qualify",
   title: "Prairie Water Conversation Playbook",
-  orientation: "Use these themes to advance from Qualify to Scope.",
+  header: { insight: "Use these themes to advance from Qualify to Scope." },
   themes: [
     {
       title: "Service area, flow, and scale",
@@ -45,6 +47,9 @@ const legacyPayload: PlaybookPayload = {
   ],
 };
 
+const countPdfPages = (pdf: Buffer): number =>
+  pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)?.length ?? 0;
+
 describe("renderPlaybookPdf", () => {
   it("renders a non-empty PDF from the typed Playbook payload", async () => {
     const pdf = await renderPlaybookPdf(payload);
@@ -61,6 +66,30 @@ describe("renderPlaybookPdf", () => {
     expect(pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)?.length ?? 0).toBe(1);
   });
 
+  it("uses the shared Tier 2 continuation top reserve for page body flow", () => {
+    expect(playbookPagePaddingTop).toBe(tier2ContinuationTopReserve);
+  });
+
+  it("renders a forced multi-page Playbook with the continuation reserve", async () => {
+    const densePayload: PlaybookPayload = {
+      ...payload,
+      themes: Array.from({ length: 18 }, (_, index) => ({
+        title: `Dense theme ${index + 1}`,
+        framing: "Use this theme to force enough body flow for a continuation page.",
+        questions: Array.from(
+          { length: 5 },
+          (__, questionIndex) =>
+            `Question ${index + 1}.${questionIndex + 1}: what evidence supports this lane?`,
+        ),
+      })),
+    };
+
+    const pdf = await renderPlaybookPdf(densePayload);
+
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    expect(countPdfPages(pdf)).toBeGreaterThan(1);
+  });
+
   it("renders a valid PDF when all new optional fields are populated", async () => {
     const richPayload: PlaybookPayload = {
       customer: {
@@ -73,9 +102,9 @@ describe("renderPlaybookPdf", () => {
       },
       stage: "Qualify",
       header: {
-        subStreamsSummary: "Wet weather · Permit · Capital planning",
-        leadStageIntro: "This account is in active Qualify stage. Focus on timeline pressure.",
-        stageInsight: "NPDES renewal in 18 months creates urgent window.",
+        subStreams: ["Wet weather", "Permit", "Capital planning"],
+        stageIntro: "This account is in active Qualify stage. Focus on timeline pressure.",
+        insight: "NPDES renewal in 18 months creates urgent window.",
       },
       themes: [
         {
@@ -201,43 +230,21 @@ describe("resolvePlaybookThemeAccent", () => {
 });
 
 describe("resolvePlaybookHeaderFields", () => {
-  it("prefers spec header names over backward-compatible aliases", () => {
+  it("resolves only canonical header fields", () => {
     expect(
       resolvePlaybookHeaderFields({
-        subStreams: ["Spec stream"],
-        subStreamsSummary: "Alias stream",
+        subStreams: ["Budget", "NPDES"],
         stageIntro: "Spec intro",
-        leadStageIntro: "Alias intro",
         insight: "Spec insight",
-        stageInsight: "Alias insight",
       }),
     ).toEqual({
-      subStreamsSummary: "Spec stream",
+      subStreamsLine: "Budget, NPDES",
       stageIntro: "Spec intro",
       insight: "Spec insight",
     });
   });
 
-  it("falls back to aliases and legacy orientation when spec names are absent", () => {
-    expect(
-      resolvePlaybookHeaderFields(
-        {
-          subStreamsSummary: "Alias stream",
-          leadStageIntro: "Alias intro",
-          stageInsight: "Alias insight",
-        },
-        "Legacy orientation",
-      ),
-    ).toEqual({
-      subStreamsSummary: "Alias stream",
-      stageIntro: "Alias intro",
-      insight: "Alias insight",
-    });
-  });
-
-  it("uses legacy orientation as insight when no header insight exists", () => {
-    expect(resolvePlaybookHeaderFields(undefined, "Legacy orientation").insight).toBe(
-      "Legacy orientation",
-    );
+  it("leaves insight empty when no canonical header insight exists", () => {
+    expect(resolvePlaybookHeaderFields(undefined).insight).toBeUndefined();
   });
 });

@@ -3,13 +3,20 @@ import type { AnalyticalReadPayload } from "../payloads";
 import {
   analyticalEvidenceTagBorderColor,
   analyticalFlagSeverity,
+  analyticalReadPagePaddingTop,
   analyticalSectionDefaultColor,
   collectTableHeaders,
   costConfidenceColor,
+  gateStateToBanner,
+  normalizeGateState,
   renderAnalyticalReadPdf,
   shouldRenderAnalyticalBanners,
 } from "./analytical-read-document";
 import { h2oBrand } from "./brand-tokens";
+import { tier2ContinuationTopReserve } from "./shared-document";
+
+const countPdfPages = (pdf: Buffer): number =>
+  pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)?.length ?? 0;
 
 const payload: AnalyticalReadPayload = {
   customer: { location: "Prairie, TX", name: "Prairie Water", slug: "prairie-water" },
@@ -33,6 +40,24 @@ const payload: AnalyticalReadPayload = {
 };
 
 describe("renderAnalyticalReadPdf", () => {
+  it("uses the shared Tier 2 continuation top reserve for page body flow", () => {
+    expect(analyticalReadPagePaddingTop).toBe(tier2ContinuationTopReserve);
+  });
+
+  it("renders a forced multi-page Analytical Read with the continuation reserve", async () => {
+    const pdf = await renderAnalyticalReadPdf({
+      ...payload,
+      sections: Array.from({ length: 28 }, (_, index) => ({
+        heading: `Dense evidence section ${index + 1}`,
+        body: "This deliberately long analytical section forces continuation-page flow while the fixed header reserve remains active.",
+        evidenceTags: ["FLOW", "PERMIT", "CAPEX"],
+      })),
+    });
+
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    expect(countPdfPages(pdf)).toBeGreaterThan(1);
+  });
+
   it("renders a non-empty PDF from the typed Analytical Read payload", async () => {
     const pdf = await renderAnalyticalReadPdf(payload);
 
@@ -102,6 +127,60 @@ describe("costConfidenceColor", () => {
   });
 });
 
+describe("normalizeGateState", () => {
+  it("normalizes recognized gate states across casing, whitespace, and separators", () => {
+    expect(normalizeGateState(" open ")).toBe("OPEN");
+    expect(normalizeGateState("OPEN_WITH_CONDITIONS")).toBe("OPEN-WITH-CONDITIONS");
+    expect(normalizeGateState("conditionally_open")).toBe("CONDITIONALLY-OPEN");
+    expect(normalizeGateState("closed")).toBe("CLOSED");
+  });
+
+  it("falls back to CLOSED for empty or unknown values", () => {
+    expect(normalizeGateState()).toBe("CLOSED");
+    expect(normalizeGateState("   ")).toBe("CLOSED");
+    expect(normalizeGateState("PARTIAL")).toBe("CLOSED");
+  });
+});
+
+describe("gateStateToBanner", () => {
+  it("maps every recognized state to boss-reference label and severity", () => {
+    expect(gateStateToBanner("OPEN")).toEqual({
+      label: "QUALIFICATION GATE — OPEN",
+      severity: "open",
+      state: "OPEN",
+    });
+    expect(gateStateToBanner("OPEN-WITH-CONDITIONS")).toEqual({
+      label: "QUALIFICATION GATE — OPEN (with conditions)",
+      severity: "open-with-conditions",
+      state: "OPEN-WITH-CONDITIONS",
+    });
+    expect(gateStateToBanner("CONDITIONALLY-OPEN")).toEqual({
+      label: "QUALIFICATION GATE — CONDITIONALLY OPEN",
+      severity: "conditionally-open",
+      state: "CONDITIONALLY-OPEN",
+    });
+    expect(gateStateToBanner("CLOSED")).toEqual({
+      label: "QUALIFICATION GATE — CLOSED",
+      severity: "closed",
+      state: "CLOSED",
+    });
+  });
+
+  it("accepts underscore aliases and does not hardcode every banner as open", () => {
+    expect(gateStateToBanner("OPEN_WITH_CONDITIONS").severity).toBe("open-with-conditions");
+    expect(gateStateToBanner(" conditionally_open ").severity).toBe("conditionally-open");
+    expect(gateStateToBanner("closed").severity).toBe("closed");
+  });
+
+  it("uses conservative CLOSED semantics for unknown values", () => {
+    expect(gateStateToBanner("PARTIAL")).toEqual({
+      label: "QUALIFICATION GATE — CLOSED",
+      severity: "closed",
+      state: "CLOSED",
+    });
+  });
+});
+
 describe("shouldRenderAnalyticalBanners", () => {
   it("suppresses both banners when gateState and flags are absent", () => {
     expect(shouldRenderAnalyticalBanners({})).toEqual({ gate: false, compliance: false });
@@ -129,6 +208,19 @@ describe("renderAnalyticalReadPdf — Slice E", () => {
       customer: payload.customer,
       summary: payload.summary,
       sections: [{ heading: "Legacy", body: "Legacy analytical read body." }],
+    });
+
+    expect(pdf.byteLength).toBeGreaterThan(1000);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  });
+
+  it("renders recognized closed gate-state semantics without breaking PDF output", async () => {
+    const pdf = await renderAnalyticalReadPdf({
+      customer: payload.customer,
+      gateContent: "Qualification gate is closed until safety evidence is resolved.",
+      gateState: "CLOSED",
+      sections: [{ body: "Safety evidence is incomplete.", heading: "Gate evidence" }],
+      summary: "Gate is closed pending evidence.",
     });
 
     expect(pdf.byteLength).toBeGreaterThan(1000);

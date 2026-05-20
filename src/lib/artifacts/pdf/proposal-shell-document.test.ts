@@ -6,12 +6,13 @@ import {
   PROPOSAL_BOTTOM_BANNER_TEXT,
   PROPOSAL_TOP_BANNER_TEXT,
   proposalBannerDefaultsToTrue,
-  proposalCommitBorderColor,
   proposalCommitmentMetaLine,
   proposalExecSummaryAccentColor,
+  proposalShellPagePaddingTop,
   renderProposalShellPdf,
-  shouldRenderTypedCommitments,
+  shouldRenderCommitments,
 } from "./proposal-shell-document";
+import { tier2ContinuationTopReserve } from "./shared-document";
 
 const payload: ProposalShellPayload = {
   customer: { location: "Prairie, TX", name: "Prairie Water", slug: "prairie-water" },
@@ -20,10 +21,12 @@ const payload: ProposalShellPayload = {
   proposedScope: ["Modular treatment-stage expansion", "NPDES-aligned monitoring upgrades"],
   sizingAndPricing: "Range $4.2M-$5.8M MEDIUM confidence pending hydraulic confirmation.",
   schedule: "Mobilise Q3 2026; commissioning Q1 2027.",
-  commitments: {
-    commitTo: ["Modular phase-1 scope", "Hydraulic validation deliverable"],
-    doNotCommitYet: ["Phase-2 sizing", "Final NPDES determination"],
-  },
+  commitments: [
+    { label: "Commit to", text: "Modular phase-1 scope" },
+    { label: "Commit to", text: "Hydraulic validation deliverable" },
+    { label: "Do not commit yet", text: "Phase-2 sizing" },
+    { label: "Do not commit yet", text: "Final NPDES determination" },
+  ],
   fundingPathway: "CWSRF financing track with bridging contingency.",
   riskAllocation: "Customer retains permit risk; we hold capacity-delivery risk.",
 };
@@ -32,6 +35,29 @@ const countPdfPages = (pdf: Buffer): number =>
   pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)?.length ?? 0;
 
 describe("renderProposalShellPdf", () => {
+  it("uses the shared Tier 2 continuation top reserve for page body flow", () => {
+    expect(proposalShellPagePaddingTop).toBe(tier2ContinuationTopReserve);
+  });
+
+  it("renders a forced multi-page Proposal Shell with the continuation reserve", async () => {
+    const pdf = await renderProposalShellPdf({
+      ...payload,
+      proposedScope: Array.from(
+        { length: 36 },
+        (_, index) =>
+          `Dense scope item ${index + 1}: validate commercial and technical assumptions.`,
+      ),
+      workPackages: Array.from({ length: 18 }, (_, index) => ({
+        id: `wp-${index + 1}`,
+        name: `Work package ${index + 1}`,
+        outcome: "Force enough table rows for continuation-page rendering.",
+      })),
+    });
+
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    expect(countPdfPages(pdf)).toBeGreaterThan(1);
+  });
+
   it("renders a non-empty PDF from the typed Proposal Shell payload", async () => {
     const pdf = await renderProposalShellPdf(payload);
 
@@ -46,7 +72,7 @@ describe("renderProposalShellPdf", () => {
       proposedScope: ["Phase 1 basis of design", "Commercial validation"],
       sizingAndPricing: "Initial sizing range pending hydraulic validation.",
       schedule: "Thirty-day validation sprint, then proposal refresh.",
-      commitments: {},
+      commitments: [],
     });
 
     expect(pdf.byteLength).toBeGreaterThan(1000);
@@ -81,7 +107,7 @@ describe("renderProposalShellPdf", () => {
         { gate: "Hydraulic basis", closer: "72-hour flow record" },
         { gate: "Commercial authority", closer: "Sponsor sign-off" },
       ],
-      commitmentsTyped: [
+      commitments: [
         {
           label: "Commit to",
           text: "Phase-1 design basis",
@@ -95,16 +121,6 @@ describe("renderProposalShellPdf", () => {
     expect(pdf.byteLength).toBeGreaterThan(1000);
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
     expect(countPdfPages(pdf)).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe("proposalCommitBorderColor", () => {
-  it("returns v3 green for commitTo cards", () => {
-    expect(proposalCommitBorderColor("commitTo")).toBe(h2oBrand.colors.green);
-  });
-
-  it("returns v3 amber for doNotCommitYet cards", () => {
-    expect(proposalCommitBorderColor("doNotCommitYet")).toBe(h2oBrand.colors.amber);
   });
 });
 
@@ -153,13 +169,13 @@ describe("buildGatesToCloseColumns", () => {
   });
 });
 
-describe("typed commitment helpers", () => {
-  it("renders typed commitments only when items are present", () => {
-    expect(
-      shouldRenderTypedCommitments([{ label: "Commit to", text: "Scope", owner: "Owner" }]),
-    ).toBe(true);
-    expect(shouldRenderTypedCommitments([])).toBe(false);
-    expect(shouldRenderTypedCommitments(undefined)).toBe(false);
+describe("commitment helpers", () => {
+  it("renders commitments only when items are present", () => {
+    expect(shouldRenderCommitments([{ label: "Commit to", text: "Scope", owner: "Owner" }])).toBe(
+      true,
+    );
+    expect(shouldRenderCommitments([])).toBe(false);
+    expect(shouldRenderCommitments(undefined)).toBe(false);
   });
 
   it("builds the muted date/owner meta line", () => {

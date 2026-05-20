@@ -76,7 +76,10 @@ const proposalShellInput = {
   proposedScope: ["Modular treatment-stage expansion"],
   sizingAndPricing: "Range $4.2M-$5.8M MEDIUM confidence.",
   schedule: "Mobilise Q3 2026.",
-  commitments: { commitTo: ["Phase-1 scope"], doNotCommitYet: ["Phase-2 sizing"] },
+  commitments: [
+    { label: "Commit to", text: "Phase-1 scope" },
+    { label: "Do not commit yet", text: "Phase-2 sizing" },
+  ],
 };
 
 const createStore = (): ArtifactStore => ({
@@ -143,7 +146,10 @@ describe("H2O artifact tool schemas", () => {
         proposedScope: ["Phase 1 assessment"],
         sizingAndPricing: "Directional only.",
         schedule: "30-60 days.",
-        commitments: { commitTo: ["Assessment"], doNotCommitYet: ["Final design"] },
+        commitments: [
+          { label: "Commit to", text: "Assessment" },
+          { label: "Do not commit yet", text: "Final design" },
+        ],
       }).success,
     ).toBe(true);
   });
@@ -164,6 +170,9 @@ describe("H2O artifact tool schemas", () => {
   });
 });
 
+const getToolDescription = (tool: unknown): string =>
+  (tool as { description?: string }).description ?? "";
+
 describe("createH2oArtifactTools returns 4 atomic tools", () => {
   it("exposes exactly the four expected tool keys", () => {
     const tools = createH2oArtifactTools({
@@ -181,6 +190,40 @@ describe("createH2oArtifactTools returns 4 atomic tools", () => {
         "generateProposalShell",
       ].sort(),
     );
+  });
+
+  it("describes only canonical Playbook header fields", () => {
+    const tools = createH2oArtifactTools({
+      artifactStore: createStore(),
+      pdfStorage: new InMemoryArtifactPdfStorage(),
+      owner,
+      threadId: "thread-1",
+    });
+
+    const description = getToolDescription(tools.generatePlaybook);
+
+    expect(description).toContain("Use header.subStreams, header.stageIntro, and header.insight");
+    expect(description).not.toContain("subStreamsSummary");
+    expect(description).not.toContain("leadStageIntro");
+    expect(description).not.toContain("stageInsight");
+    expect(description).not.toContain("legacy");
+  });
+
+  it("describes commitments as the single enriched Proposal commitments path", () => {
+    const tools = createH2oArtifactTools({
+      artifactStore: createStore(),
+      pdfStorage: new InMemoryArtifactPdfStorage(),
+      owner,
+      threadId: "thread-1",
+    });
+
+    const description = getToolDescription(tools.generateProposalShell);
+
+    expect(description).toContain(
+      "Populate commitments with enriched commitment cards (label, text, optional date, optional owner)",
+    );
+    expect(description).not.toContain("commitmentsTyped");
+    expect(description).not.toContain("legacy");
   });
 });
 
@@ -540,7 +583,7 @@ describe("playbookInputSchema — Slice B additive fields", () => {
     expect(playbookInputSchema.safeParse(input).success).toBe(false);
   });
 
-  it("accepts optional header object with subStreamsSummary, leadStageIntro, stageInsight", () => {
+  it("rejects removed Playbook header aliases", () => {
     const input = {
       ...playbookInput,
       header: {
@@ -549,18 +592,20 @@ describe("playbookInputSchema — Slice B additive fields", () => {
         stageInsight: "Customer is at decision-readiness threshold; capital approval is the gate.",
       },
     };
-    const result = playbookInputSchema.safeParse(input);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.header?.subStreamsSummary).toBe(
-        "Budget · Decision Authority · NPDES Compliance",
-      );
-      expect(result.data.header?.leadStageIntro).toBeDefined();
-      expect(result.data.header?.stageInsight).toBeDefined();
-    }
+
+    expect(playbookInputSchema.safeParse(input).success).toBe(false);
   });
 
-  it("accepts spec header names subStreams, stageIntro, insight", () => {
+  it("rejects removed Playbook orientation field", () => {
+    const input = {
+      ...playbookInput,
+      orientation: "Legacy orientation text",
+    };
+
+    expect(playbookInputSchema.safeParse(input).success).toBe(false);
+  });
+
+  it("accepts canonical header names subStreams, stageIntro, insight", () => {
     const input = {
       ...playbookInput,
       header: {
@@ -582,10 +627,10 @@ describe("playbookInputSchema — Slice B additive fields", () => {
     }
   });
 
-  it("accepts partial header with only some fields populated", () => {
+  it("accepts partial canonical header with only some fields populated", () => {
     const input = {
       ...playbookInput,
-      header: { subStreamsSummary: "Budget · NPDES" },
+      header: { subStreams: ["Budget", "NPDES"] },
     };
     expect(playbookInputSchema.safeParse(input).success).toBe(true);
   });
@@ -859,10 +904,10 @@ describe("proposalShellInputSchema — Slice B additive fields", () => {
     expect(proposalShellInputSchema.safeParse(input).success).toBe(true);
   });
 
-  it("accepts commitmentsTyped array with label/text/date/owner", () => {
+  it("accepts canonical enriched commitments array with label/text/date/owner", () => {
     const input = {
       ...proposalShellInput,
-      commitmentsTyped: [
+      commitments: [
         {
           label: "Scope delivery",
           text: "Phase-1 scope document",
@@ -875,21 +920,19 @@ describe("proposalShellInputSchema — Slice B additive fields", () => {
     const result = proposalShellInputSchema.safeParse(input);
     expect(result.success).toBe(true);
     if (result.success) {
-      const commitmentsTyped = result.data.commitmentsTyped ?? [];
-      expect(commitmentsTyped).toHaveLength(2);
-      expect(commitmentsTyped[0].date).toBe("2026-07-15");
-      expect(commitmentsTyped[1].owner).toBe("H2O Estimating");
-      expect(commitmentsTyped[1].date).toBeUndefined();
+      expect(result.data.commitments).toHaveLength(2);
+      expect(result.data.commitments[0].date).toBe("2026-07-15");
+      expect(result.data.commitments[1].owner).toBe("H2O Estimating");
+      expect(result.data.commitments[1].date).toBeUndefined();
     }
   });
 
-  it("legacy commitments field still parses correctly alongside new commitmentsTyped", () => {
+  it("rejects removed legacy commitments object shape", () => {
     const input = {
       ...proposalShellInput,
-      commitmentsTyped: [{ label: "Scope", text: "Phase-1 scope" }],
+      commitments: { commitTo: ["Scope"], doNotCommitYet: ["Later"] },
     };
-    // Both old commitments object and new commitmentsTyped can coexist
-    expect(proposalShellInputSchema.safeParse(input).success).toBe(true);
+    expect(proposalShellInputSchema.safeParse(input).success).toBe(false);
   });
 });
 
