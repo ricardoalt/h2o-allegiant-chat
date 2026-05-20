@@ -148,3 +148,9 @@ const chatStreamingUrl = chatStreamingFunction.addFunctionUrl({
 new CfnOutput(chatStreamingStack, "ChatStreamingFunctionUrl", {
   value: chatStreamingUrl.url,
 });
+
+backend.addOutput({
+  custom: {
+    chatStreamingFunctionUrl: chatStreamingUrl.url,
+  },
+});

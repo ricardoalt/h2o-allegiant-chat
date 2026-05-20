@@ -69,9 +69,9 @@ describe("canSubmitPromptMessage", () => {
 });
 
 describe("chat transport configuration", () => {
-  it("uses the production Lambda Function URL by default", () => {
-    expect(getChatTransportApi()).toBe(
-      "https://i2bquluu4ttmvzpuxva665dlye0tnunw.lambda-url.us-east-1.on.aws/",
+  it("resolves the chat Lambda Function URL from amplify_outputs.json", () => {
+    expect(getChatTransportApi()).toMatch(
+      /^https:\/\/[a-z0-9]+\.lambda-url\.[a-z0-9-]+\.on\.aws\/$/,
     );
   });
 });

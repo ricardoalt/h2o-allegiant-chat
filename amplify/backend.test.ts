@@ -12,8 +12,10 @@ const cfnUserPool = vi.hoisted(() => ({
 
 const createStackMock = vi.hoisted(() => vi.fn((stackName: string) => ({ stackName })));
 
+const addOutputMock = vi.hoisted(() => vi.fn());
 const defineBackendMock = vi.hoisted(() =>
   vi.fn(() => ({
+    addOutput: addOutputMock,
     auth: {
       resources: {
         cfnResources: {
@@ -97,6 +99,7 @@ describe("Amplify backend", () => {
     addToRolePolicyMock.mockClear();
     policyStatementMock.mockClear();
     cfnOutputMock.mockClear();
+    addOutputMock.mockClear();
     cfnUserPool.adminCreateUserConfig = undefined;
 
     await import("./backend");

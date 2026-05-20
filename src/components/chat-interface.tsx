@@ -48,6 +48,7 @@ import {
   shouldShowLoadingShimmer,
 } from "@/lib/chat-utils";
 import type { AgentStatusData, MyUIMessage } from "@/types/ui-message";
+import outputs from "../../amplify_outputs.json";
 import { CopyButton } from "./copy-button";
 
 const EMPTY_STATE_SUGGESTIONS = [
@@ -130,7 +131,14 @@ type ChatSendRequestInput = Pick<
   "body" | "messageId" | "messages" | "trigger"
 >;
 
-const CHAT_LAMBDA_URL = "https://i2bquluu4ttmvzpuxva665dlye0tnunw.lambda-url.us-east-1.on.aws/";
+const CHAT_LAMBDA_URL = (outputs as { custom?: { chatStreamingFunctionUrl?: string } }).custom
+  ?.chatStreamingFunctionUrl;
+
+if (!CHAT_LAMBDA_URL) {
+  throw new Error(
+    "amplify_outputs.json is missing custom.chatStreamingFunctionUrl. Run `npx ampx sandbox` or `npx ampx generate outputs` to regenerate.",
+  );
+}
 
 type PreparedChatRequest = {
   body: object;
