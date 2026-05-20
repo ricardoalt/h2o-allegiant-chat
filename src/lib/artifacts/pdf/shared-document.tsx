@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { extname, join } from "node:path";
 import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ReactNode } from "react";
 import { bannerTone, h2oBrand, severityBg } from "./brand-tokens";
@@ -8,9 +8,19 @@ export const tier2ContinuationTopReserve = 48;
 
 const DEFAULT_LOGO_PATH = join(process.cwd(), "public", "h2o-allegiant.png");
 
+const logoMimeType = (logoPath: string): string => {
+  const extension = extname(logoPath).toLowerCase();
+  if (extension === ".svg") return "image/svg+xml";
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  return "image/png";
+};
+
 export const resolveH2oPdfLogoSource = (logoPath = DEFAULT_LOGO_PATH): string | null => {
   try {
-    return existsSync(logoPath) ? logoPath : null;
+    if (!existsSync(logoPath)) return null;
+
+    const data = readFileSync(logoPath).toString("base64");
+    return `data:${logoMimeType(logoPath)};base64,${data}`;
   } catch {
     return null;
   }
@@ -129,12 +139,12 @@ const styles = StyleSheet.create({
 
 /**
  * H2O Allegiant logo mark.
- * `size="sm"` renders at ~54×22 (75% of default). Default keeps prior behavior.
+ * `size="sm"` keeps the same sidebar-logo aspect ratio at continuation-header scale.
  */
 export const LogoMark = ({ size = "md" }: { size?: "sm" | "md" }) => {
   const logoSource = resolveH2oPdfLogoSource();
-  const width = size === "sm" ? 54 : h2oBrand.logo.width;
-  const height = size === "sm" ? 22 : h2oBrand.logo.height;
+  const width = size === "sm" ? 82 : h2oBrand.logo.width;
+  const height = size === "sm" ? 16 : h2oBrand.logo.height;
 
   if (logoSource) {
     return <Image src={logoSource} style={[styles.logoImage, { width, height }]} />;

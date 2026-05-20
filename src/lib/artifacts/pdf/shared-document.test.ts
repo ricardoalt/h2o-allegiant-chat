@@ -16,12 +16,19 @@ describe("tier2ContinuationTopReserve", () => {
   });
 });
 
+describe("LogoMark sizing", () => {
+  it("keeps the PDF logo aligned to the sidebar logo aspect ratio", () => {
+    expect(h2oBrand.logo).toMatchObject({ width: 102, height: 20 });
+    expect(h2oBrand.logo.width / h2oBrand.logo.height).toBeCloseTo(1696 / 333, 1);
+  });
+});
+
 describe("resolveH2oPdfLogoSource", () => {
-  it("resolves the sidebar logo asset from public for server-side PDF rendering", () => {
+  it("embeds the sidebar logo asset from public as a PDF-safe data URI", () => {
     const expectedPath = join(process.cwd(), "public", "h2o-allegiant.png");
 
     expect(existsSync(expectedPath)).toBe(true);
-    expect(resolveH2oPdfLogoSource()).toBe(expectedPath);
+    expect(resolveH2oPdfLogoSource()).toMatch(/^data:image\/png;base64,/);
   });
 
   it("returns null for missing assets so renderers can use the fallback mark", () => {

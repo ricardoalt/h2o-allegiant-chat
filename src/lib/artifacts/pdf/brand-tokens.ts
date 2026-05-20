@@ -42,8 +42,9 @@ export const h2oBrand = {
     footerY: 752,
   },
   logo: {
-    width: 72,
-    height: 29,
+    // Matches the sidebar logo asset aspect ratio (`public/h2o-allegiant.png`, 1696×333).
+    width: 102,
+    height: 20,
   },
 };
 
