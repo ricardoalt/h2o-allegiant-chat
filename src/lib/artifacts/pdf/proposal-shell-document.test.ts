@@ -157,10 +157,17 @@ describe("Proposal Shell R9 banner text", () => {
 });
 
 describe("buildGatesToCloseColumns", () => {
-  it("derives columns from the first row keys with even flex basis", () => {
+  it("derives columns from the first row keys with even flex basis and formats common headers", () => {
     expect(buildGatesToCloseColumns([{ gate: "Hydraulics", closer: "Flow record" }])).toEqual([
-      { key: "gate", header: "gate", flexBasis: 225 },
-      { key: "closer", header: "closer", flexBasis: 225 },
+      { key: "gate", header: "Gate", flexBasis: 225 },
+      { key: "closer", header: "What closes it", flexBasis: 225 },
+    ]);
+  });
+
+  it("capitalizes unknown keys as the column header", () => {
+    expect(buildGatesToCloseColumns([{ requirement: "x", source: "y" }])).toEqual([
+      { key: "requirement", header: "Requirement", flexBasis: 225 },
+      { key: "source", header: "Source", flexBasis: 225 },
     ]);
   });
 

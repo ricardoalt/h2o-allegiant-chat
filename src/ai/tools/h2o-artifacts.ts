@@ -91,7 +91,7 @@ export const playbookInputSchema = z
   .object({
     customer: customerSchema,
     stage: stageSchema.optional(),
-    title: z.string().default("Call Playbook"),
+    /** Optional subtitle override (default "Question structure for the first operator conversation"). Title is fixed to "Call Playbook" — do NOT pass a title field. */
     subtitle: z.string().optional(),
     /** Optional document-level header fields for TopHeader rendering. */
     header: z
@@ -139,7 +139,7 @@ const confidenceTierSchema = z.enum(["HIGH", "MEDIUM", "LOW", "QUALITATIVE"]);
 
 export const analyticalReadInputSchema = z.object({
   customer: customerSchema,
-  title: z.string().default("Analytical Read"),
+  /** Optional subtitle override (e.g. "Evidenced read on the produced-water management failure at Pecos East"). Title is fixed to "Analytical Read" — do NOT pass a title field. */
   subtitle: z.string().optional(),
   subStreamsLine: z.string().optional(),
   closingInsight: z.string().optional(),
@@ -237,7 +237,7 @@ export const analyticalReadInputSchema = z.object({
 
 export const proposalShellInputSchema = z.object({
   customer: customerSchema,
-  title: z.string().default("Proposal Shell — directional scoping"),
+  /** Optional subtitle override (default "Stage: {stage} · Intent-only · Not for customer delivery"). Title is fixed to "Proposal Shell — directional scoping" — do NOT pass a title field. */
   subtitle: z.string().optional(),
   phase2Prize: z.string().optional(),
   executiveSummary: z.string().min(1),

@@ -5,7 +5,6 @@ import {
   DataTable,
   Footer,
   FullWidthBanner,
-  KVTable,
   TopHeader,
   tier2ContinuationTopReserve,
 } from "./shared-document";
@@ -23,13 +22,21 @@ export const PROPOSAL_TOP_BANNER_TEXT =
 export const PROPOSAL_BOTTOM_BANNER_TEXT =
   "Treat this document as Internal scoping intent only. Refresh at every stage advance.";
 
+const formatGateColumnHeader = (key: string): string => {
+  const lower = key.toLowerCase();
+  if (lower === "gate" || lower === "gates") return "Gate";
+  if (lower === "closer" || lower === "closers") return "What closes it";
+  // Default: capitalize first letter of the agent-provided key
+  return key.charAt(0).toUpperCase() + key.slice(1);
+};
+
 export const buildGatesToCloseColumns = (rows: Array<Record<string, string>>) => {
   const keys = Object.keys(rows[0] ?? {});
   if (!keys.length) {
     return [];
   }
   const flexBasis = Math.floor(450 / keys.length);
-  return keys.map((key) => ({ key, header: key, flexBasis }));
+  return keys.map((key) => ({ key, header: formatGateColumnHeader(key), flexBasis }));
 };
 
 type ProposalCommitment = ProposalShellPayload["commitments"][number];
@@ -64,19 +71,6 @@ const styles = StyleSheet.create({
     fontSize: 8.2,
     lineHeight: 1.15,
     marginBottom: 2,
-  },
-  // Executive summary block — left accent, denser line height
-  execSummaryBlock: {
-    backgroundColor: h2oBrand.colors.panelBlue,
-    borderLeftColor: h2oBrand.colors.blue,
-    borderLeftWidth: 3,
-    color: h2oBrand.colors.navy,
-    fontFamily: h2oBrand.font.bold,
-    fontSize: 8.2,
-    lineHeight: 1.15,
-    marginBottom: 2,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
   },
   // Scope bullets — consistent glyph, tight indent matching Field Brief
   bullet: {
@@ -138,18 +132,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     marginTop: 2,
   },
-  // Commit cards — tighter internal spacing
+  // Commit cards — vertical stack (single column) to avoid overflow on long content
   commitGrid: {
     display: "flex",
-    flexDirection: "row",
-    gap: 6,
+    flexDirection: "column",
+    gap: 4,
     marginBottom: 3,
   },
   commitCard: {
     borderColor: h2oBrand.colors.line,
     borderRadius: 4,
     borderWidth: 0.8,
-    flex: 1,
     padding: 5,
   },
   commitTitle: {
@@ -234,8 +227,25 @@ export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPaylo
         ) : null}
         <View style={styles.section}>
           <SectionTitle>Scope intent (phase 1)</SectionTitle>
-          <Text style={styles.execSummaryBlock}>{payload.executiveSummary}</Text>
-          <BulletList items={payload.proposedScope} />
+          {payload.executiveSummary ? (
+            <Text style={styles.body}>{payload.executiveSummary}</Text>
+          ) : null}
+          {payload.proposedScope?.length ? <BulletList items={payload.proposedScope} /> : null}
+          {payload.workPackages?.length ? (
+            <DataTable
+              columns={[
+                { key: "code", header: "WP", flexBasis: 40 },
+                { key: "name", header: "Work package", flexBasis: 160 },
+                { key: "outcome", header: "Outcome", flexBasis: 250 },
+              ]}
+              headerStyle="navy-dark"
+              rows={payload.workPackages.map((row, idx) => ({
+                code: `WP${idx + 1}`,
+                name: row.name,
+                outcome: row.outcome,
+              }))}
+            />
+          ) : null}
         </View>
         {payload.phase2Prize ? (
           <View style={styles.section}>
@@ -243,28 +253,24 @@ export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPaylo
             <Text style={styles.body}>{payload.phase2Prize}</Text>
           </View>
         ) : null}
-        {payload.workPackages?.length ? (
+        {payload.sizingRows?.length || payload.sizingAndPricing || payload.schedule ? (
           <View style={styles.section}>
             <SectionTitle>Indicative commercial shape</SectionTitle>
-            <DataTable
-              columns={[
-                { key: "name", header: "Work package", flexBasis: 200 },
-                { key: "outcome", header: "Outcome / deliverable", flexBasis: 250 },
-              ]}
-              headerStyle="navy-dark"
-              rows={payload.workPackages.map((row) => ({ name: row.name, outcome: row.outcome }))}
-            />
+            {payload.sizingRows?.length ? (
+              <DataTable
+                columns={[
+                  { key: "label", header: "Element", flexBasis: 180 },
+                  { key: "value", header: "Intent", flexBasis: 270 },
+                ]}
+                headerStyle="navy-dark"
+                rows={payload.sizingRows}
+              />
+            ) : payload.sizingAndPricing ? (
+              <Text style={styles.body}>{payload.sizingAndPricing}</Text>
+            ) : null}
+            {payload.schedule ? <Text style={styles.body}>{payload.schedule}</Text> : null}
           </View>
         ) : null}
-        <View style={styles.section}>
-          <SectionTitle>Indicative commercial shape</SectionTitle>
-          {payload.sizingRows?.length ? (
-            <KVTable rows={payload.sizingRows} />
-          ) : (
-            <Text style={styles.body}>{payload.sizingAndPricing}</Text>
-          )}
-          <Text style={styles.body}>{payload.schedule}</Text>
-        </View>
         {payload.outOfScope?.length ? (
           <View style={styles.section}>
             <SectionTitle>Explicitly out of scope (or deferred)</SectionTitle>
@@ -279,15 +285,11 @@ export const ProposalShellDocument = ({ payload }: { payload: ProposalShellPaylo
         {payload.gatesToClose?.length ? (
           <View style={styles.section}>
             <SectionTitle>What needs to close before drafting a real proposal</SectionTitle>
-            <DataTable
-              columns={gatesColumns}
-              headerStyle="navy-light"
-              rows={payload.gatesToClose}
-            />
+            <DataTable columns={gatesColumns} headerStyle="navy-dark" rows={payload.gatesToClose} />
           </View>
         ) : null}
         {shouldRenderCommitments(commitments) ? (
-          <View style={styles.section} wrap={false}>
+          <View style={styles.section}>
             <SectionTitle>Commitments</SectionTitle>
             <Commitments items={commitments} />
           </View>
