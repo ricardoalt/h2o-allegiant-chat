@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
 import type * as React from "react";
 import { NewChatPage } from "@/components/new-chat-page";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type PageProps = {
   searchParams: Promise<{ new?: string }>;

@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
 import type * as React from "react";
 import { LoginView } from "./login-view";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default function LoginPage(): React.JSX.Element {
   return (
