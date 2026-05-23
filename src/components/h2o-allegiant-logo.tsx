@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-export function OpenChatLogo({ className }: { className?: string }): React.JSX.Element {
+export function H2OAllegiantLogo({ className }: { className?: string }): React.JSX.Element {
   return (
     <Image
       src="/h2o-allegiant.png"

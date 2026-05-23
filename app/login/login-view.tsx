@@ -4,7 +4,7 @@ import { Authenticator } from "@aws-amplify/ui-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type * as React from "react";
 import { useEffect, useId } from "react";
-import { OpenChatLogo } from "@/components/openchat-logo";
+import { H2OAllegiantLogo } from "@/components/h2o-allegiant-logo";
 import { Button } from "@/components/ui/button";
 
 function SignedInRedirect(): React.JSX.Element {
@@ -63,7 +63,7 @@ export function LoginView(): React.JSX.Element {
         />
 
         <div className="flex flex-col items-center text-center">
-          <OpenChatLogo className="h-9 w-auto" />
+          <H2OAllegiantLogo className="h-9 w-auto" />
           <h1 id={headingId} className="mt-7 font-semibold text-2xl text-foreground tracking-tight">
             Welcome back
           </h1>

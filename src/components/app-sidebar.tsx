@@ -10,7 +10,7 @@ import { useParams, useRouter } from "next/navigation";
 import type * as React from "react";
 import { useState } from "react";
 import { ChatSearch } from "@/components/chat-search";
-import { OpenChatLogo } from "@/components/openchat-logo";
+import { H2OAllegiantLogo } from "@/components/h2o-allegiant-logo";
 import { SettingsDialog } from "@/components/settings-dialog";
 import {
   AlertDialog,
@@ -158,7 +158,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>): React.J
       <Sidebar collapsible="icon" {...props}>
         <SidebarHeader className="relative px-3 pt-3 group-data-[collapsible=icon]:px-0 after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-primary/20 after:to-transparent group-data-[collapsible=icon]:after:inset-x-1">
           <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center">
-            <OpenChatLogo className="h-8 w-auto max-w-[160px] shrink-0 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:max-w-[120px]" />
+            <H2OAllegiantLogo className="h-8 w-auto max-w-[160px] shrink-0 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:max-w-[120px]" />
             <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
           </div>
         </SidebarHeader>
