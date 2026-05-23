@@ -1,7 +1,31 @@
 import "../src/styles.css";
 import type { Metadata, Viewport } from "next";
+import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import type * as React from "react";
 import { AppShell } from "./shell";
+
+// next/font self-hosts these from Google Fonts at build time and exposes them
+// as CSS variables. The marketing landing in app/page.tsx + public/landing.html
+// reads --font-inter-tight / --font-inter / --font-jetbrains-mono before its
+// system-font fallbacks — without this wiring the landing rendered with SF/Segoe.
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-inter",
+  display: "swap",
+});
+const interTight = Inter_Tight({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-inter-tight",
+  display: "swap",
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "H2O Allegiant",
@@ -17,7 +41,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${interTight.variable} ${jetbrainsMono.variable}`}
+    >
       <body>
         <a
           href="#main-content"
