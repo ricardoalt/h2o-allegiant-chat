@@ -925,17 +925,65 @@ section { padding: var(--s-10) 0; position: relative; }
 }
 
 .prairie-cta {
+  width: 100%;
+  max-width: 880px;
+  margin: var(--s-6) auto 0;
+  padding: var(--s-5) var(--s-6);
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   text-align: center;
-  margin-top: var(--s-6);
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: var(--s-4);
-  flex-wrap: wrap;
+  gap: var(--s-5);
 }
 .prairie-cta .note {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.1fr);
+  align-items: center;
+  gap: var(--s-5);
   font-size: var(--fs-small);
   color: var(--muted-text);
+  line-height: 1.5;
+  text-align: left;
+}
+.prairie-cta .note strong {
+  display: block;
+  color: var(--brand-navy);
+  font-size: var(--fs-body);
+  line-height: 1.35;
+  text-align: center;
+}
+.prairie-cta .deliverables-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: var(--s-2) var(--s-4);
+  text-align: left;
+}
+.prairie-cta .deliverables-list li {
+  position: relative;
+  padding-left: 1.5rem;
+  color: var(--brand-navy);
+  font-weight: 600;
+}
+.prairie-cta .deliverables-list li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--gate-open);
+  font-weight: 700;
+}
+.prairie-cta .btn {
+  width: 100%;
+  max-width: 360px;
 }
 
 /* ── Stage ladder ──────────────────────────────────────────────────── */
@@ -1512,6 +1560,9 @@ section { padding: var(--s-10) 0; position: relative; }
   .brief { padding: 2rem 1.5rem 1.75rem; }
   .brief-head { flex-direction: row; gap: 1rem; }
   .brief h1 { font-size: 1.5rem; }
+  .prairie-cta { padding: var(--s-5); }
+  .prairie-cta .note { grid-template-columns: 1fr; gap: var(--s-3); text-align: center; }
+  .prairie-cta .deliverables-list { grid-template-columns: 1fr; max-width: 280px; margin: 0 auto; }
   .artefacts-grid { grid-template-columns: 1fr; }
   .lenses-grid { grid-template-columns: 1fr; }
   .flow-step { grid-template-columns: 1fr; gap: var(--s-3); }
@@ -1771,8 +1822,16 @@ section { padding: var(--s-10) 0; position: relative; }
     </div>
 
     <div class="prairie-cta">
-      <a href="/assets/prairie-field-brief.pdf" class="btn btn-accent" download>↓ Download the full 2-page brief (PDF)</a>
-      <span class="note">Page 2 covers kill risks and next actions.</span>
+      <div class="note">
+        <strong>Turn one case-file upload into four decision-ready PDFs:</strong>
+        <ul class="deliverables-list">
+          <li>Field Brief</li>
+          <li>Conversation Playbook</li>
+          <li>Analytical Read</li>
+          <li>Proposal Shell</li>
+        </ul>
+      </div>
+      <a href="/assets/prairie-field-brief.pdf" class="btn btn-accent" download>↓ Download the sample Field Brief (PDF)</a>
     </div>
   </div>
 </section>
