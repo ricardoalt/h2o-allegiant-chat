@@ -10,7 +10,7 @@ import {
 import { h2oAllegiantPrompt } from "@/ai/prompts/h2o-allegiant";
 import { buildSkillsXmlBlock } from "@/ai/skills/discover";
 import { loadSkillTool } from "@/ai/tools/load-skill";
-import { MODELS } from "@/config/models";
+import { type ModelOption, MODELS } from "@/config/models";
 import { bedrockProvider } from "@/lib/bedrock-provider";
 
 // Skills block is auto-discovered at module load from src/ai/skills/*/SKILL.md.
@@ -61,27 +61,17 @@ const AGENT_MAX_STEPS = 10;
 // without giving the model unlimited budget on a single step.
 const AGENT_MAX_OUTPUT_TOKENS = 32_768;
 
-const MODEL_TOKEN_PRICES_USD_PER_MILLION: Record<string, { input: number; output: number }> = {
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-opus-4-7": { input: 5, output: 25 },
-};
-
-const estimateTokenCostUsd = ({
-  modelId,
+export const estimateTokenCostUsd = ({
+  model,
   inputTokens,
   outputTokens,
 }: {
-  modelId: string;
+  model: Pick<ModelOption, "inputPricePerMillion" | "outputPricePerMillion">;
   inputTokens: number;
   outputTokens: number;
-}): number | null => {
-  const prices = MODEL_TOKEN_PRICES_USD_PER_MILLION[modelId];
-  if (!prices) {
-    return null;
-  }
-
-  return (inputTokens / 1_000_000) * prices.input + (outputTokens / 1_000_000) * prices.output;
-};
+}): number =>
+  (inputTokens / 1_000_000) * model.inputPricePerMillion +
+  (outputTokens / 1_000_000) * model.outputPricePerMillion;
 
 const ARTIFACT_TOOL_SEQUENCE = [
   "generateFieldBrief",
@@ -286,7 +276,7 @@ export const createAgent = ({
 
       const model = MODELS[0];
       const estimatedCostUsd = estimateTokenCostUsd({
-        modelId: model.id,
+        model,
         inputTokens,
         outputTokens,
       });

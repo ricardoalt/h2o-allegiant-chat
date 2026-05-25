@@ -23,7 +23,9 @@ export type ModelOption = {
   chefSlug: ProviderSlug;
   capabilities: readonly AttachmentCapability[];
   id: string;
+  inputPricePerMillion: number;
   name: string;
+  outputPricePerMillion: number;
   provider: ProviderSlug;
   runtimeModelId: string;
 };
@@ -34,7 +36,9 @@ export const MODELS = [
     chefSlug: "amazon-bedrock",
     capabilities: ["text", "image", "pdf"],
     id: "claude-sonnet-4-6",
+    inputPricePerMillion: 3,
     name: "Claude Sonnet 4.6",
+    outputPricePerMillion: 15,
     provider: "amazon-bedrock",
     runtimeModelId: "us.anthropic.claude-sonnet-4-6",
   },
