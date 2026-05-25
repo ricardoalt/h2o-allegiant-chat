@@ -387,8 +387,6 @@ describe("createAgent", () => {
     }).not.toThrow();
   });
 
-
-
   it("onStepFinish logs structured usage", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);

@@ -10,7 +10,7 @@ import {
 import { h2oAllegiantPrompt } from "@/ai/prompts/h2o-allegiant";
 import { buildSkillsXmlBlock } from "@/ai/skills/discover";
 import { loadSkillTool } from "@/ai/tools/load-skill";
-import { type ModelOption, MODELS } from "@/config/models";
+import { MODELS, type ModelOption } from "@/config/models";
 import { bedrockProvider } from "@/lib/bedrock-provider";
 
 // Skills block is auto-discovered at module load from src/ai/skills/*/SKILL.md.
