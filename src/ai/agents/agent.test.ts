@@ -16,7 +16,7 @@ vi.mock("ai", () => ({
 }));
 vi.mock("@/lib/bedrock-provider", () => ({ bedrockProvider: vi.fn((id: string) => ({ id })) }));
 
-const { createAgent } = await import("./agent");
+const { createAgent, estimateTokenCostUsd } = await import("./agent");
 
 describe("createAgent", () => {
   beforeEach(() => {
@@ -420,5 +420,16 @@ describe("createAgent", () => {
 
     logSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+describe("estimateTokenCostUsd", () => {
+  it("returns 18 given sonnet pricing (input:3, output:15 per million) and 1M input + 1M output tokens", () => {
+    const result = estimateTokenCostUsd({
+      model: { inputPricePerMillion: 3, outputPricePerMillion: 15 },
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    expect(result).toBe(18);
   });
 });
